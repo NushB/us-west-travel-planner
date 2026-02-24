@@ -1,0 +1,13 @@
+# Streamlit secrets (API Key, 비밀번호 포함 - 절대 GitHub에 올리면 안됨)
+.streamlit/secrets.toml
+
+# Firebase 서비스 계정 키 (절대 GitHub에 올리면 안됨)
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
