@@ -148,6 +148,15 @@ def load_restaurants():
 def save_restaurants(restaurants):
     db.collection("travel_data").document("restaurants").set({"list": restaurants})
 
+def load_transports():
+    doc = db.collection("travel_data").document("transports").get()
+    if doc.exists:
+        return doc.to_dict().get("list", [])
+    return []
+
+def save_transports(transports):
+    db.collection("travel_data").document("transports").set({"list": transports})
+
 def load_settings():
     doc = db.collection("travel_data").document("settings").get()
     if doc.exists:
@@ -306,6 +315,8 @@ if 'checklist_쏘야' not in st.session_state or 'checklist_병하' not in st.se
     st.session_state['checklist_병하'] = _cl_byungha
 if 'restaurants' not in st.session_state:
     st.session_state['restaurants'] = load_restaurants()
+if 'transports' not in st.session_state:
+    st.session_state['transports'] = load_transports()
 if 'settings' not in st.session_state:
     st.session_state['settings'] = load_settings()
 
@@ -395,7 +406,7 @@ div[data-testid="stHorizontalBlock"]:hover
 
 # 사이드바
 with st.sidebar:
-    # --- 디지털 시계: 미서부(LA) / 서울 ---
+    # --- 디지털 시계 + 날씨: 미서부(LA) / 서울 ---
     components.html("""
     <style>
       body { margin:0; padding:0; background:transparent; }
@@ -407,25 +418,42 @@ with st.sidebar:
       }
       .card-us { background: linear-gradient(135deg,#1a1a2e,#0f3460); }
       .card-kr { background: linear-gradient(135deg,#1a1a2e,#3d0c0c); }
-      .label { font-size:11px; color:rgba(255,255,255,0.6); }
+      .label  { font-size:11px; color:rgba(255,255,255,0.6); margin-bottom:3px; }
       .time-us { font-size:22px; font-weight:700; letter-spacing:2px; color:#60a5fa; }
       .time-kr { font-size:22px; font-weight:700; letter-spacing:2px; color:#fbbf24; }
+      .w-icon  { font-size:22px; line-height:1; }
+      .w-temp  { font-size:12px; color:rgba(255,255,255,0.75); text-align:right; margin-top:2px; }
     </style>
+
     <div class="card card-us">
-      <div class="label">🇺🇸 미서부 (LA)</div>
-      <div class="time-us" id="us">--:--:--</div>
+      <div>
+        <div class="label">🇺🇸 미서부 (LA)</div>
+        <div class="time-us" id="us">--:--:--</div>
+      </div>
+      <div style="text-align:right">
+        <div class="w-icon" id="us-wi">⋯</div>
+        <div class="w-temp" id="us-wt"></div>
+      </div>
     </div>
     <div class="card card-kr">
-      <div class="label">🇰🇷 서울</div>
-      <div class="time-kr" id="kr">--:--:--</div>
+      <div>
+        <div class="label">🇰🇷 서울</div>
+        <div class="time-kr" id="kr">--:--:--</div>
+      </div>
+      <div style="text-align:right">
+        <div class="w-icon" id="kr-wi">⋯</div>
+        <div class="w-temp" id="kr-wt"></div>
+      </div>
     </div>
+
     <script>
+    // ── 시계 ──
     function fmt(tz){
       const p = new Intl.DateTimeFormat('en-US',{
         timeZone:tz, hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
       }).formatToParts(new Date());
-      return p.find(x=>x.type==='hour').value + ':' +
-             p.find(x=>x.type==='minute').value + ':' +
+      return p.find(x=>x.type==='hour').value+':'+
+             p.find(x=>x.type==='minute').value+':'+
              p.find(x=>x.type==='second').value;
     }
     function tick(){
@@ -433,8 +461,40 @@ with st.sidebar:
       document.getElementById('kr').textContent = fmt('Asia/Seoul');
     }
     tick(); setInterval(tick, 1000);
+
+    // ── 날씨 (Open-Meteo, 무료 API) ──
+    function wEmoji(c){
+      if(c===0)return'☀️';
+      if(c<=2)return'🌤️';
+      if(c<=3)return'☁️';
+      if(c<=48)return'🌫️';
+      if(c<=55)return'🌦️';
+      if(c<=65)return'🌧️';
+      if(c<=77)return'❄️';
+      if(c<=82)return'🌧️';
+      if(c<=86)return'🌨️';
+      return'⛈️';
+    }
+    async function fetchW(lat,lon,wi,wt){
+      try{
+        const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weathercode&timezone=auto`);
+        const d=await r.json();
+        const t=Math.round(d.current.temperature_2m);
+        const e=wEmoji(d.current.weathercode);
+        document.getElementById(wi).textContent=e;
+        document.getElementById(wt).textContent=t+'°C';
+      }catch(e){
+        document.getElementById(wi).textContent='--';
+      }
+    }
+    fetchW(34.0522,-118.2437,'us-wi','us-wt');
+    fetchW(37.5665,126.9780,'kr-wi','kr-wt');
+    setInterval(()=>{
+      fetchW(34.0522,-118.2437,'us-wi','us-wt');
+      fetchW(37.5665,126.9780,'kr-wi','kr-wt');
+    }, 600000);
     </script>
-    """, height=100)
+    """, height=148)
 
     st.header("메뉴")
     if st.button("🔓 로그아웃"):
@@ -1170,81 +1230,166 @@ with tab2:
 # ---- TAB 3: 항공/교통 정보 ----
 with tab3:
     st.header("✈️ 항공 및 교통 정보")
+    t3_tab1, t3_tab2 = st.tabs(["✈️ 항공편", "🚗 일반 교통편"])
 
-    with st.form("flight_form"):
-        st.markdown("##### 항공편 추가")
-        fc1, fc2, fc3 = st.columns(3)
-        with fc1:
-            f_type = st.selectbox("구분", ["출발편", "귀국편", "경유편", "국내선"])
-        with fc2:
-            f_airline = st.text_input("항공사", placeholder="예: 대한항공")
-        with fc3:
-            f_no = st.text_input("편명", placeholder="예: KE011")
+    # ── 서브탭 1: 항공편 ──
+    with t3_tab1:
+        with st.form("flight_form"):
+            st.markdown("##### 항공편 추가")
+            fc1, fc2, fc3 = st.columns(3)
+            with fc1:
+                f_type = st.selectbox("구분", ["출발편", "귀국편", "경유편", "국내선"])
+            with fc2:
+                f_airline = st.text_input("항공사", placeholder="예: 대한항공")
+            with fc3:
+                f_no = st.text_input("편명", placeholder="예: KE011")
 
-        fc4, fc5 = st.columns(2)
-        with fc4:
-            f_dep_airport = st.text_input("출발 공항", placeholder="예: 인천 (ICN)")
-            f_dep_dt = st.text_input("출발 일시", placeholder="예: 2026-05-01 14:00")
-        with fc5:
-            f_arr_airport = st.text_input("도착 공항", placeholder="예: 로스앤젤레스 (LAX)")
-            f_arr_dt = st.text_input("도착 일시", placeholder="예: 2026-05-01 09:00")
+            fc4, fc5 = st.columns(2)
+            with fc4:
+                f_dep_airport = st.text_input("출발 공항", placeholder="예: 인천 (ICN)")
+                f_dep_dt = st.text_input("출발 일시", placeholder="예: 2026-05-01 14:00")
+            with fc5:
+                f_arr_airport = st.text_input("도착 공항", placeholder="예: 로스앤젤레스 (LAX)")
+                f_arr_dt = st.text_input("도착 일시", placeholder="예: 2026-05-01 09:00")
 
-        fc6, fc7 = st.columns(2)
-        with fc6:
-            f_seat = st.text_input("좌석 번호", placeholder="예: 42A")
-        with fc7:
-            f_confirm = st.text_input("예약 확인 번호", placeholder="예: ABC123456")
+            fc6, fc7 = st.columns(2)
+            with fc6:
+                f_seat = st.text_input("좌석 번호", placeholder="예: 42A")
+            with fc7:
+                f_confirm = st.text_input("예약 확인 번호", placeholder="예: ABC123456")
 
-        f_memo = st.text_input("메모", placeholder="예: 수하물 23kg 포함")
-        f_submitted = st.form_submit_button("✈️ 항공편 추가")
+            f_memo = st.text_input("메모", placeholder="예: 수하물 23kg 포함")
+            f_submitted = st.form_submit_button("✈️ 항공편 추가")
 
-        if f_submitted and f_airline and f_no:
-            new_flight = {
-                "type": f_type, "airline": f_airline, "flight_no": f_no,
-                "dep_airport": f_dep_airport, "dep_datetime": f_dep_dt,
-                "arr_airport": f_arr_airport, "arr_datetime": f_arr_dt,
-                "seat": f_seat, "confirmation": f_confirm, "memo": f_memo,
-            }
-            st.session_state['flights'].append(new_flight)
-            save_flights(st.session_state['flights'])
-            st.success(f"'{f_airline} {f_no}' 항공편이 추가되었습니다!")
-            st.rerun()
-        elif f_submitted:
-            st.warning("항공사와 편명은 필수 입력 항목입니다.")
+            if f_submitted and f_airline and f_no:
+                new_flight = {
+                    "type": f_type, "airline": f_airline, "flight_no": f_no,
+                    "dep_airport": f_dep_airport, "dep_datetime": f_dep_dt,
+                    "arr_airport": f_arr_airport, "arr_datetime": f_arr_dt,
+                    "seat": f_seat, "confirmation": f_confirm, "memo": f_memo,
+                }
+                st.session_state['flights'].append(new_flight)
+                save_flights(st.session_state['flights'])
+                st.success(f"'{f_airline} {f_no}' 항공편이 추가되었습니다!")
+                st.rerun()
+            elif f_submitted:
+                st.warning("항공사와 편명은 필수 입력 항목입니다.")
 
-    st.divider()
+        st.divider()
 
-    if st.session_state['flights']:
-        st.subheader("📋 등록된 항공편")
-        TYPE_COLORS = {"출발편": "#667eea", "귀국편": "#f5576c", "경유편": "#f093fb", "국내선": "#43e97b"}
-        for i, fl in enumerate(st.session_state['flights']):
-            c_info, c_del = st.columns([11, 1])
-            color = TYPE_COLORS.get(fl.get('type', '출발편'), "#667eea")
-            with c_info:
-                st.markdown(f"""
-                <div style="border-left:4px solid {color};padding:10px 14px;
-                            background:#fafafa;border-radius:0 8px 8px 0;margin:4px 0;">
-                    <span style="background:{color};color:white;font-size:11px;
-                                 padding:2px 8px;border-radius:10px;font-weight:600;">
-                        {fl.get('type','')}</span>&nbsp;
-                    <strong style="font-size:15px;">{fl.get('airline','')} {fl.get('flight_no','')}</strong>
-                    {f"<span style='color:#888;font-size:12px;margin-left:8px;'>좌석 {fl.get('seat','')}</span>" if fl.get('seat') else ""}
-                    <br>
-                    <span style="font-size:13px;color:#444;">
-                        🛫 {fl.get('dep_airport','')} {fl.get('dep_datetime','')}
-                        &nbsp;→&nbsp;
-                        🛬 {fl.get('arr_airport','')} {fl.get('arr_datetime','')}
-                    </span>
-                    {f"<br><span style='font-size:12px;color:#888;'>📌 예약번호: {fl.get('confirmation','')}</span>" if fl.get('confirmation') else ""}
-                    {f"<br><span style='font-size:12px;color:#888;'>📝 {fl.get('memo','')}</span>" if fl.get('memo') else ""}
-                </div>""", unsafe_allow_html=True)
-            with c_del:
-                if st.button("🗑️", key=f"del_flight_{i}", use_container_width=True):
-                    st.session_state['flights'].pop(i)
-                    save_flights(st.session_state['flights'])
-                    st.rerun()
-    else:
-        st.info("아직 등록된 항공편이 없습니다.")
+        if st.session_state['flights']:
+            st.subheader("📋 등록된 항공편")
+            TYPE_COLORS = {"출발편": "#667eea", "귀국편": "#f5576c", "경유편": "#f093fb", "국내선": "#43e97b"}
+            for i, fl in enumerate(st.session_state['flights']):
+                c_info, c_del = st.columns([11, 1])
+                color = TYPE_COLORS.get(fl.get('type', '출발편'), "#667eea")
+                with c_info:
+                    st.markdown(f"""
+                    <div style="border-left:4px solid {color};padding:10px 14px;
+                                background:#fafafa;border-radius:0 8px 8px 0;margin:4px 0;">
+                        <span style="background:{color};color:white;font-size:11px;
+                                     padding:2px 8px;border-radius:10px;font-weight:600;">
+                            {fl.get('type','')}</span>&nbsp;
+                        <strong style="font-size:15px;">{fl.get('airline','')} {fl.get('flight_no','')}</strong>
+                        {f"<span style='color:#888;font-size:12px;margin-left:8px;'>좌석 {fl.get('seat','')}</span>" if fl.get('seat') else ""}
+                        <br>
+                        <span style="font-size:13px;color:#444;">
+                            🛫 {fl.get('dep_airport','')} {fl.get('dep_datetime','')}
+                            &nbsp;→&nbsp;
+                            🛬 {fl.get('arr_airport','')} {fl.get('arr_datetime','')}
+                        </span>
+                        {f"<br><span style='font-size:12px;color:#888;'>📌 예약번호: {fl.get('confirmation','')}</span>" if fl.get('confirmation') else ""}
+                        {f"<br><span style='font-size:12px;color:#888;'>📝 {fl.get('memo','')}</span>" if fl.get('memo') else ""}
+                    </div>""", unsafe_allow_html=True)
+                with c_del:
+                    if st.button("🗑️", key=f"del_flight_{i}", use_container_width=True):
+                        st.session_state['flights'].pop(i)
+                        save_flights(st.session_state['flights'])
+                        st.rerun()
+        else:
+            st.info("아직 등록된 항공편이 없습니다.")
+
+    # ── 서브탭 2: 일반 교통편 ──
+    with t3_tab2:
+        TRANSPORT_TYPES = ["🚗 렌터카", "🚌 버스/셔틀", "🚂 기차/암트랙", "🚕 택시/우버", "🚢 크루즈/페리", "🎢 기타"]
+        TRANSPORT_COLORS = {
+            "🚗 렌터카": "#f59e0b", "🚌 버스/셔틀": "#10b981",
+            "🚂 기차/암트랙": "#3b82f6", "🚕 택시/우버": "#8b5cf6",
+            "🚢 크루즈/페리": "#06b6d4", "🎢 기타": "#6b7280",
+        }
+
+        with st.form("transport_form"):
+            st.markdown("##### 교통편 추가")
+            tc1, tc2 = st.columns(2)
+            with tc1:
+                t_type = st.selectbox("교통 수단", TRANSPORT_TYPES)
+                t_company = st.text_input("회사/서비스명", placeholder="예: Enterprise, Greyhound, Amtrak")
+            with tc2:
+                t_dep = st.text_input("출발지", placeholder="예: 로스앤젤레스 LAX")
+                t_arr = st.text_input("도착지", placeholder="예: 라스베이거스")
+
+            tc3, tc4 = st.columns(2)
+            with tc3:
+                t_dep_dt = st.text_input("출발 일시", placeholder="예: 2026-05-03 09:00")
+            with tc4:
+                t_arr_dt = st.text_input("도착 일시", placeholder="예: 2026-05-03 13:30")
+
+            tc5, tc6 = st.columns(2)
+            with tc5:
+                t_confirm = st.text_input("예약 번호", placeholder="예: RES-123456")
+            with tc6:
+                t_price = st.text_input("금액", placeholder="예: $89.00")
+
+            t_memo = st.text_input("메모", placeholder="예: 픽업 장소: 공항 1층 B구역")
+            t_submitted = st.form_submit_button("🚘 교통편 추가")
+
+            if t_submitted and t_dep and t_arr:
+                new_transport = {
+                    "type": t_type, "company": t_company,
+                    "dep": t_dep, "arr": t_arr,
+                    "dep_datetime": t_dep_dt, "arr_datetime": t_arr_dt,
+                    "confirmation": t_confirm, "price": t_price, "memo": t_memo,
+                }
+                st.session_state['transports'].append(new_transport)
+                save_transports(st.session_state['transports'])
+                st.success(f"'{t_type}' 교통편이 추가되었습니다!")
+                st.rerun()
+            elif t_submitted:
+                st.warning("출발지와 도착지는 필수 입력 항목입니다.")
+
+        st.divider()
+
+        if st.session_state['transports']:
+            st.subheader("📋 등록된 교통편")
+            for i, tr in enumerate(st.session_state['transports']):
+                c_info, c_del = st.columns([11, 1])
+                color = TRANSPORT_COLORS.get(tr.get('type', '🎢 기타'), "#6b7280")
+                with c_info:
+                    company_txt = f" · {tr.get('company','')}" if tr.get('company') else ""
+                    st.markdown(f"""
+                    <div style="border-left:4px solid {color};padding:10px 14px;
+                                background:#fafafa;border-radius:0 8px 8px 0;margin:4px 0;">
+                        <span style="background:{color};color:white;font-size:11px;
+                                     padding:2px 8px;border-radius:10px;font-weight:600;">
+                            {tr.get('type','')}</span>
+                        <strong style="font-size:15px;margin-left:6px;">{company_txt.strip(' · ')}</strong>
+                        <br>
+                        <span style="font-size:13px;color:#444;">
+                            🚩 {tr.get('dep','')} {tr.get('dep_datetime','')}
+                            &nbsp;→&nbsp;
+                            🏁 {tr.get('arr','')} {tr.get('arr_datetime','')}
+                        </span>
+                        {f"<br><span style='font-size:12px;color:#888;'>📌 예약번호: {tr.get('confirmation','')}</span>" if tr.get('confirmation') else ""}
+                        {f"<span style='font-size:12px;color:#888;margin-left:8px;'>💰 {tr.get('price','')}</span>" if tr.get('price') else ""}
+                        {f"<br><span style='font-size:12px;color:#888;'>📝 {tr.get('memo','')}</span>" if tr.get('memo') else ""}
+                    </div>""", unsafe_allow_html=True)
+                with c_del:
+                    if st.button("🗑️", key=f"del_transport_{i}", use_container_width=True):
+                        st.session_state['transports'].pop(i)
+                        save_transports(st.session_state['transports'])
+                        st.rerun()
+        else:
+            st.info("아직 등록된 교통편이 없습니다.")
 
 # ---- TAB 4: 숙소 관리 ----
 with tab4:
