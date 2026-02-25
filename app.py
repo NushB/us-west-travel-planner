@@ -395,33 +395,29 @@ div[data-testid="stHorizontalBlock"]:hover
 
 # 사이드바
 with st.sidebar:
-    # --- 디지털 시계: 미서부(LA) + 서울 ---
+    # --- 디지털 시계: 미서부(LA) / 서울 ---
     components.html("""
     <style>
       body { margin:0; padding:0; background:transparent; }
-      .cw {
+      .card {
         font-family: 'SF Mono','Courier New',monospace;
-        background: linear-gradient(135deg,#1a1a2e,#16213e);
-        border-radius: 12px; padding: 12px 16px;
+        border-radius: 10px; padding: 9px 14px;
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 6px;
       }
-      .cr { display:flex; justify-content:space-between; align-items:flex-start; }
-      .cz { flex:1; }
-      .cl { font-size:11px; color:rgba(255,255,255,0.6); margin-bottom:4px; }
-      .ct { font-size:21px; font-weight:700; letter-spacing:2px; }
-      .us { color:#60a5fa; }
-      .kr { color:#fbbf24; text-align:right; }
+      .card-us { background: linear-gradient(135deg,#1a1a2e,#0f3460); }
+      .card-kr { background: linear-gradient(135deg,#1a1a2e,#3d0c0c); }
+      .label { font-size:11px; color:rgba(255,255,255,0.6); }
+      .time-us { font-size:22px; font-weight:700; letter-spacing:2px; color:#60a5fa; }
+      .time-kr { font-size:22px; font-weight:700; letter-spacing:2px; color:#fbbf24; }
     </style>
-    <div class="cw">
-      <div class="cr">
-        <div class="cz">
-          <div class="cl">🇺🇸 미서부 (LA)</div>
-          <div class="ct us" id="us">--:--:--</div>
-        </div>
-        <div class="cz" style="text-align:right">
-          <div class="cl">🇰🇷 서울</div>
-          <div class="ct kr" id="kr">--:--:--</div>
-        </div>
-      </div>
+    <div class="card card-us">
+      <div class="label">🇺🇸 미서부 (LA)</div>
+      <div class="time-us" id="us">--:--:--</div>
+    </div>
+    <div class="card card-kr">
+      <div class="label">🇰🇷 서울</div>
+      <div class="time-kr" id="kr">--:--:--</div>
     </div>
     <script>
     function fmt(tz){
@@ -438,7 +434,7 @@ with st.sidebar:
     }
     tick(); setInterval(tick, 1000);
     </script>
-    """, height=78)
+    """, height=100)
 
     st.header("메뉴")
     if st.button("🔓 로그아웃"):
