@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
@@ -394,9 +395,51 @@ div[data-testid="stHorizontalBlock"]:hover
 
 # 사이드바
 with st.sidebar:
-    gif_html = load_gif_html(os.path.join(APP_DIR, "ezgif.com-reverse.gif"), width=90)
-    if gif_html:
-        st.markdown(gif_html, unsafe_allow_html=True)
+    # --- 디지털 시계: 미서부(LA) + 서울 ---
+    components.html("""
+    <style>
+      body { margin:0; padding:0; background:transparent; }
+      .cw {
+        font-family: 'SF Mono','Courier New',monospace;
+        background: linear-gradient(135deg,#1a1a2e,#16213e);
+        border-radius: 12px; padding: 12px 16px;
+      }
+      .cr { display:flex; justify-content:space-between; align-items:flex-start; }
+      .cz { flex:1; }
+      .cl { font-size:11px; color:rgba(255,255,255,0.6); margin-bottom:4px; }
+      .ct { font-size:21px; font-weight:700; letter-spacing:2px; }
+      .us { color:#60a5fa; }
+      .kr { color:#fbbf24; text-align:right; }
+    </style>
+    <div class="cw">
+      <div class="cr">
+        <div class="cz">
+          <div class="cl">🇺🇸 미서부 (LA)</div>
+          <div class="ct us" id="us">--:--:--</div>
+        </div>
+        <div class="cz" style="text-align:right">
+          <div class="cl">🇰🇷 서울</div>
+          <div class="ct kr" id="kr">--:--:--</div>
+        </div>
+      </div>
+    </div>
+    <script>
+    function fmt(tz){
+      const p = new Intl.DateTimeFormat('en-US',{
+        timeZone:tz, hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+      }).formatToParts(new Date());
+      return p.find(x=>x.type==='hour').value + ':' +
+             p.find(x=>x.type==='minute').value + ':' +
+             p.find(x=>x.type==='second').value;
+    }
+    function tick(){
+      document.getElementById('us').textContent = fmt('America/Los_Angeles');
+      document.getElementById('kr').textContent = fmt('Asia/Seoul');
+    }
+    tick(); setInterval(tick, 1000);
+    </script>
+    """, height=78)
+
     st.header("메뉴")
     if st.button("🔓 로그아웃"):
         st.session_state["authenticated"] = False
@@ -424,11 +467,13 @@ with st.sidebar:
     if _delta > 0:
         st.markdown(f"""
         <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;
-                    padding:16px;border-radius:12px;text-align:center;margin-top:8px;">
-            <div style="font-size:13px;opacity:.9;margin-bottom:4px;">여행까지</div>
-            <div style="font-size:44px;font-weight:900;line-height:1;">{_delta}</div>
-            <div style="font-size:17px;font-weight:600;">일 남았어요! ✈️</div>
-            <div style="font-size:11px;opacity:.8;margin-top:6px;">{_dep.strftime('%Y년 %m월 %d일')}</div>
+                    padding:16px 20px;border-radius:12px;text-align:center;margin-top:8px;">
+            <div style="line-height:1.15;">
+                <span style="font-size:54px;font-weight:900;">{_delta}</span>
+                <span style="font-size:22px;font-weight:700;margin-left:4px;">일</span>
+            </div>
+            <div style="font-size:17px;font-weight:600;margin-top:2px;">남았어요! ✈️</div>
+            <div style="font-size:11px;opacity:.75;margin-top:6px;">{_dep.strftime('%Y년 %m월 %d일')}</div>
         </div>""", unsafe_allow_html=True)
     elif _delta == 0:
         st.markdown("""
@@ -445,6 +490,14 @@ with st.sidebar:
             <div style="font-size:32px;font-weight:900;">D+{abs(_delta)}</div>
             <div style="font-size:11px;opacity:.8;margin-top:4px;">출발일: {_dep.strftime('%Y년 %m월 %d일')}</div>
         </div>""", unsafe_allow_html=True)
+
+    # --- GIF: D-Day 배너 아래 작게 ---
+    _gif_html = load_gif_html(os.path.join(APP_DIR, "ezgif.com-reverse.gif"), width=58)
+    if _gif_html:
+        st.markdown(
+            f'<div style="display:flex;justify-content:center;margin-top:10px;">{_gif_html}</div>',
+            unsafe_allow_html=True
+        )
 
 # 탭 구성
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
