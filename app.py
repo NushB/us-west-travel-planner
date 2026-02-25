@@ -7,6 +7,7 @@ import polyline as polyline_decoder
 from datetime import datetime, date as date_type
 import re
 import os
+import base64
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -85,6 +86,15 @@ try:
 except Exception:
     st.error("Google Maps API Key가 설정되지 않았습니다.")
     st.stop()
+
+# --- 애니메이션 GIF 로더 (st.image는 GIF 정지됨 → base64 HTML 필요) ---
+def load_gif_html(path, width=90):
+    try:
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("utf-8")
+        return f'<img src="data:image/gif;base64,{data}" width="{width}" style="display:block;">'
+    except Exception:
+        return ""
 
 # --- 사진 URL 생성 ---
 def get_photo_url(photo_reference, max_width=400):
@@ -167,7 +177,9 @@ st.title("🚙 우리들의 미국 서부 여행 플래너")
 
 # 사이드바
 with st.sidebar:
-    st.image(os.path.join(APP_DIR, "ezgif.com-reverse.gif"), width=90)
+    gif_html = load_gif_html(os.path.join(APP_DIR, "ezgif.com-reverse.gif"), width=90)
+    if gif_html:
+        st.markdown(gif_html, unsafe_allow_html=True)
     st.header("메뉴")
     if st.button("🔓 로그아웃"):
         st.session_state["authenticated"] = False
@@ -773,29 +785,38 @@ with tab2:
     st.divider()
 
     if not st.session_state['itinerary'].empty:
-        sorted_itinerary = st.session_state['itinerary'].sort_values(by=['날짜', '시작시간']).reset_index(drop=True)
+        # 원본 인덱스 보존한 채로 정렬 (삭제 시 원본 인덱스로 drop)
+        sorted_itinerary = st.session_state['itinerary'].sort_values(by=['날짜', '시작시간'])
 
         st.subheader("📋 등록된 일정")
-        st.dataframe(sorted_itinerary, use_container_width=True, hide_index=False)
 
-        # 일정 삭제
-        st.markdown("#### 🗑️ 일정 삭제")
-        delete_options = [
-            f"{i+1}. {row['날짜']}  {row['시작시간']}~{row['종료시간']}  {row['장소 및 활동']}"
-            for i, row in sorted_itinerary.iterrows()
-        ]
-        selected_to_delete = st.selectbox("삭제할 일정을 선택하세요", delete_options, label_visibility="collapsed")
-        if st.button("🗑️ 선택한 일정 삭제", type="secondary"):
-            del_idx = delete_options.index(selected_to_delete)
-            # sorted_itinerary의 행 번호로 원본 DataFrame에서 삭제
-            original_idx = sorted_itinerary.index[del_idx]
-            st.session_state['itinerary'] = st.session_state['itinerary'].drop(original_idx).reset_index(drop=True)
-            save_itinerary(st.session_state['itinerary'])
-            st.success("일정이 삭제되었습니다!")
-            st.rerun()
+        # 헤더
+        h0, h1, h2, h3, h4, h5, h6 = st.columns([0.35, 1.7, 0.75, 0.75, 2.8, 2.4, 0.45])
+        h0.markdown("<span style='font-size:12px; color:#888;'>#</span>", unsafe_allow_html=True)
+        h1.markdown("<span style='font-size:12px; font-weight:bold;'>날짜</span>", unsafe_allow_html=True)
+        h2.markdown("<span style='font-size:12px; font-weight:bold;'>시작</span>", unsafe_allow_html=True)
+        h3.markdown("<span style='font-size:12px; font-weight:bold;'>종료</span>", unsafe_allow_html=True)
+        h4.markdown("<span style='font-size:12px; font-weight:bold;'>장소 및 활동</span>", unsafe_allow_html=True)
+        h5.markdown("<span style='font-size:12px; font-weight:bold;'>메모</span>", unsafe_allow_html=True)
+        h6.markdown("")
+        st.markdown("<hr style='margin:4px 0 8px 0;'>", unsafe_allow_html=True)
+
+        for display_num, (orig_idx, row) in enumerate(sorted_itinerary.iterrows(), 1):
+            c0, c1, c2, c3, c4, c5, c6 = st.columns([0.35, 1.7, 0.75, 0.75, 2.8, 2.4, 0.45])
+            c0.markdown(f"<span style='color:#aaa; font-size:12px;'>{display_num}</span>", unsafe_allow_html=True)
+            c1.markdown(f"<span style='font-size:13px;'>{row['날짜']}</span>", unsafe_allow_html=True)
+            c2.markdown(f"<span style='font-size:13px;'>{row['시작시간']}</span>", unsafe_allow_html=True)
+            c3.markdown(f"<span style='font-size:13px;'>{row['종료시간']}</span>", unsafe_allow_html=True)
+            c4.markdown(f"<span style='font-size:13px;'>**{row['장소 및 활동']}**</span>", unsafe_allow_html=True)
+            c5.markdown(f"<span style='font-size:12px; color:#555;'>{row['메모'] if row['메모'] else ''}</span>", unsafe_allow_html=True)
+            with c6:
+                if st.button("🗑️", key=f"del_row_{orig_idx}", help="이 일정 삭제"):
+                    st.session_state['itinerary'] = st.session_state['itinerary'].drop(orig_idx).reset_index(drop=True)
+                    save_itinerary(st.session_state['itinerary'])
+                    st.rerun()
 
         st.divider()
-        csv = sorted_itinerary.to_csv(index=False).encode('utf-8')
+        csv = sorted_itinerary.reset_index(drop=True).to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 엑셀/CSV로 일정 다운로드",
             data=csv,
