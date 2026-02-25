@@ -98,22 +98,45 @@ def save_hotels(hotels):
     db.collection("travel_data").document("hotels").set({"list": hotels})
 
 def load_budget():
+    """{"planned": {cat: amount}, "expenses": [...]} 형태로 반환. 구 포맷 마이그레이션 포함."""
     doc = db.collection("travel_data").document("budget").get()
     if doc.exists:
-        return doc.to_dict().get("data", {})
-    return {}
+        data = doc.to_dict()
+        if "expenses" in data:
+            if "planned" not in data:
+                data["planned"] = {}
+            return data
+        # 구 포맷 마이그레이션: {"data": {cat: {planned, actual}}} → 새 포맷
+        old = data.get("data", {})
+        planned = {}
+        for cat in BUDGET_CATEGORIES:
+            entry = old.get(cat, {})
+            planned[cat] = entry.get("planned", 0) if isinstance(entry, dict) else 0
+        return {"planned": planned, "expenses": []}
+    return {"planned": {cat: 0 for cat in BUDGET_CATEGORIES}, "expenses": []}
 
-def save_budget(budget):
-    db.collection("travel_data").document("budget").set({"data": budget})
+def save_budget(budget_data):
+    db.collection("travel_data").document("budget").set(budget_data)
 
 def load_checklist():
+    """(soya_list, byungha_list) 튜플 반환. 구 포맷도 마이그레이션."""
     doc = db.collection("travel_data").document("checklist").get()
     if doc.exists:
-        return doc.to_dict().get("list", [])
-    return []
+        data = doc.to_dict()
+        if "쏘야" in data or "병하" in data:
+            return data.get("쏘야", []), data.get("병하", [])
+        # 구 포맷 마이그레이션: 기존 list → 병하에 할당, 쏘야는 기본값
+        old_list = data.get("list", [])
+        default = [dict(x) for x in DEFAULT_CHECKLIST]
+        return list(default), old_list if old_list else list(default)
+    default = [dict(x) for x in DEFAULT_CHECKLIST]
+    return list(default), list(default)
 
-def save_checklist(items):
-    db.collection("travel_data").document("checklist").set({"list": items})
+def save_checklist(person, items):
+    """person 키만 업데이트 (merge=True 사용)."""
+    db.collection("travel_data").document("checklist").set(
+        {person: items}, merge=True
+    )
 
 def load_restaurants():
     doc = db.collection("travel_data").document("restaurants").get()
@@ -269,9 +292,10 @@ if 'hotels' not in st.session_state:
     st.session_state['hotels'] = load_hotels()
 if 'budget' not in st.session_state:
     st.session_state['budget'] = load_budget()
-if 'checklist' not in st.session_state:
-    loaded_cl = load_checklist()
-    st.session_state['checklist'] = loaded_cl if loaded_cl else [dict(x) for x in DEFAULT_CHECKLIST]
+if 'checklist_쏘야' not in st.session_state or 'checklist_병하' not in st.session_state:
+    _cl_soya, _cl_byungha = load_checklist()
+    st.session_state['checklist_쏘야'] = _cl_soya
+    st.session_state['checklist_병하'] = _cl_byungha
 if 'restaurants' not in st.session_state:
     st.session_state['restaurants'] = load_restaurants()
 if 'settings' not in st.session_state:
@@ -545,14 +569,14 @@ with tab1:
             st.subheader("📋 추가된 장소 목록")
             st.markdown("<hr style='margin:4px 0 6px 0; border-color:#f0f0f0;'>", unsafe_allow_html=True)
             for i, place in enumerate(st.session_state['places']):
-                c_name, c_del = st.columns([9, 1])
+                c_name, c_del = st.columns([9, 1], vertical_alignment="center")
                 c_name.markdown(
                     f"<span style='color:#bbb; font-size:11px; margin-right:8px;'>{i+1}</span>"
                     f"<span style='font-size:14px;'>{place['name']}</span>",
                     unsafe_allow_html=True
                 )
                 with c_del:
-                    if st.button("🗑️", key=f"del_{i}", use_container_width=True):
+                    if st.button("🗑️", key=f"del_{i}", use_container_width=True, help="삭제"):
                         st.session_state['places'].pop(i)
                         save_places(st.session_state['places'])
                         st.session_state['segment_times_cache'] = {}
@@ -627,6 +651,7 @@ with tab1:
                 st.rerun()
 
     with col2:
+        st.subheader("🗺️ 지도")
         preview = st.session_state.get('preview_place')
         if preview:
             map_center = [preview['lat'], preview['lng']]
@@ -1171,174 +1196,258 @@ with tab4:
 with tab5:
     st.header("💰 예산 관리")
 
-    budget = st.session_state['budget']
-    # 초기화되지 않은 카테고리 보완
+    PERSONS = ["쏘야", "병하", "공통"]
+    budget_data = st.session_state['budget']
+    if "planned" not in budget_data:
+        budget_data["planned"] = {}
+    if "expenses" not in budget_data:
+        budget_data["expenses"] = []
     for cat in BUDGET_CATEGORIES:
-        if cat not in budget:
-            budget[cat] = {"planned": 0, "actual": 0}
+        if cat not in budget_data["planned"]:
+            budget_data["planned"][cat] = 0
 
-    st.markdown("##### 카테고리별 예산 입력 (단위: 원)")
-    st.markdown("<small style='color:#888;'>예산과 실제 지출을 입력하세요. 자동으로 합계가 계산됩니다.</small>", unsafe_allow_html=True)
+    # ── 지출 추가 폼 ──────────────────────────────────
+    with st.form("expense_form"):
+        st.markdown("##### ➕ 지출 내역 추가")
+        ef1, ef2, ef3, ef4 = st.columns([1.5, 2.2, 1.3, 2])
+        with ef1:
+            e_date = st.date_input("날짜", value=date_type(2026, 5, 1))
+        with ef2:
+            e_cat = st.selectbox("카테고리", BUDGET_CATEGORIES)
+        with ef3:
+            e_person = st.selectbox("인물", PERSONS)
+        with ef4:
+            e_amount = st.number_input("금액 (원)", min_value=0, step=1000, value=0)
+        e_desc = st.text_input("내용", placeholder="예: 대한항공 항공권, 저녁 식사 등")
+        if st.form_submit_button("💾 지출 추가"):
+            if e_amount > 0:
+                st.session_state['budget']['expenses'].append({
+                    "date": str(e_date), "category": e_cat,
+                    "person": e_person, "amount": int(e_amount), "description": e_desc,
+                })
+                save_budget(st.session_state['budget'])
+                st.success(f"지출 {e_amount:,}원이 추가되었습니다!")
+                st.rerun()
+            else:
+                st.warning("금액을 입력해 주세요.")
 
-    with st.form("budget_form"):
-        # 헤더
-        bh0, bh1, bh2 = st.columns([2.5, 2, 2])
-        bh0.markdown("<small style='color:#999;font-weight:600;'>카테고리</small>", unsafe_allow_html=True)
-        bh1.markdown("<small style='color:#999;font-weight:600;'>예산 (원)</small>", unsafe_allow_html=True)
-        bh2.markdown("<small style='color:#999;font-weight:600;'>실제 지출 (원)</small>", unsafe_allow_html=True)
-        st.markdown("<hr style='margin:2px 0 6px 0;border-color:#ebebeb;'>", unsafe_allow_html=True)
-
-        new_budget = {}
-        for cat in BUDGET_CATEGORIES:
-            bc0, bc1, bc2 = st.columns([2.5, 2, 2])
-            bc0.markdown(f"<span style='font-size:14px;'>{cat}</span>", unsafe_allow_html=True)
-            planned_val = budget[cat].get("planned", 0)
-            actual_val = budget[cat].get("actual", 0)
-            planned = bc1.number_input("", min_value=0, value=int(planned_val), step=10000,
-                                        key=f"planned_{cat}", label_visibility="collapsed")
-            actual = bc2.number_input("", min_value=0, value=int(actual_val), step=10000,
-                                       key=f"actual_{cat}", label_visibility="collapsed")
-            new_budget[cat] = {"planned": planned, "actual": actual}
-
-        b_submitted = st.form_submit_button("💾 저장")
-        if b_submitted:
-            st.session_state['budget'] = new_budget
-            save_budget(new_budget)
-            st.success("예산이 저장되었습니다!")
-            st.rerun()
+    # ── 예산 설정 (expander) ─────────────────────────
+    with st.expander("⚙️ 카테고리별 예산 계획 설정"):
+        with st.form("planned_budget_form"):
+            st.markdown("<small style='color:#888;'>전체 여행 기간의 카테고리별 목표 예산을 설정하세요.</small>", unsafe_allow_html=True)
+            pb_cols = st.columns(2)
+            new_planned = {}
+            for ci, cat in enumerate(BUDGET_CATEGORIES):
+                with pb_cols[ci % 2]:
+                    new_planned[cat] = st.number_input(
+                        cat, min_value=0,
+                        value=int(budget_data["planned"].get(cat, 0)),
+                        step=10000, key=f"pb_{cat}"
+                    )
+            if st.form_submit_button("💾 예산 저장"):
+                st.session_state['budget']['planned'] = new_planned
+                save_budget(st.session_state['budget'])
+                st.success("예산이 저장되었습니다!")
+                st.rerun()
 
     st.divider()
 
-    # 요약 카드
-    total_planned = sum(budget[c].get("planned", 0) for c in BUDGET_CATEGORIES)
-    total_actual = sum(budget[c].get("actual", 0) for c in BUDGET_CATEGORIES)
+    # ── 요약 카드 ────────────────────────────────────
+    expenses = budget_data.get("expenses", [])
+    planned = budget_data.get("planned", {})
+    total_planned = sum(planned.values())
+    total_actual = sum(e["amount"] for e in expenses)
     remaining = total_planned - total_actual
+    soya_total = sum(e["amount"] for e in expenses if e.get("person") == "쏘야")
+    byungha_total = sum(e["amount"] for e in expenses if e.get("person") == "병하")
+    common_total = sum(e["amount"] for e in expenses if e.get("person") == "공통")
 
-    sc1, sc2, sc3 = st.columns(3)
-    sc1.markdown(f"""
-    <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;
-                padding:16px;border-radius:12px;text-align:center;">
-        <div style="font-size:12px;opacity:.85;margin-bottom:4px;">총 예산</div>
-        <div style="font-size:22px;font-weight:800;">{total_planned:,}원</div>
+    r1, r2, r3 = st.columns(3)
+    r1.markdown(f"""<div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;
+        padding:14px;border-radius:12px;text-align:center;">
+        <div style="font-size:11px;opacity:.85;margin-bottom:3px;">총 예산</div>
+        <div style="font-size:20px;font-weight:800;">{total_planned:,}원</div>
     </div>""", unsafe_allow_html=True)
-    sc2.markdown(f"""
-    <div style="background:linear-gradient(135deg,#f093fb,#f5576c);color:white;
-                padding:16px;border-radius:12px;text-align:center;">
-        <div style="font-size:12px;opacity:.85;margin-bottom:4px;">총 지출</div>
-        <div style="font-size:22px;font-weight:800;">{total_actual:,}원</div>
+    r2.markdown(f"""<div style="background:linear-gradient(135deg,#f093fb,#f5576c);color:white;
+        padding:14px;border-radius:12px;text-align:center;">
+        <div style="font-size:11px;opacity:.85;margin-bottom:3px;">총 지출</div>
+        <div style="font-size:20px;font-weight:800;">{total_actual:,}원</div>
     </div>""", unsafe_allow_html=True)
-    rem_color = "#43e97b,#38f9d7" if remaining >= 0 else "#fc5c65,#fd9644"
-    sc3.markdown(f"""
-    <div style="background:linear-gradient(135deg,{rem_color});color:white;
-                padding:16px;border-radius:12px;text-align:center;">
-        <div style="font-size:12px;opacity:.85;margin-bottom:4px;">{'잔액' if remaining >= 0 else '초과'}</div>
-        <div style="font-size:22px;font-weight:800;">{abs(remaining):,}원</div>
+    _rc = "#43e97b,#38f9d7" if remaining >= 0 else "#fc5c65,#fd9644"
+    r3.markdown(f"""<div style="background:linear-gradient(135deg,{_rc});color:white;
+        padding:14px;border-radius:12px;text-align:center;">
+        <div style="font-size:11px;opacity:.85;margin-bottom:3px;">{'잔액' if remaining >= 0 else '초과'}</div>
+        <div style="font-size:20px;font-weight:800;">{abs(remaining):,}원</div>
     </div>""", unsafe_allow_html=True)
 
-    # 카테고리별 지출 비율
-    if total_planned > 0:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("##### 카테고리별 진행률")
-        for cat in BUDGET_CATEGORIES:
-            p = budget[cat].get("planned", 0)
-            a = budget[cat].get("actual", 0)
-            if p > 0:
-                pct = min(int(a / p * 100), 100)
-                bar_color = "#ef4444" if pct >= 100 else "#f7b731" if pct >= 80 else "#43e97b"
-                st.markdown(f"""
-                <div style="margin-bottom:8px;">
-                    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px;">
+    st.markdown("<br>", unsafe_allow_html=True)
+    p1, p2, p3 = st.columns(3)
+    p1.markdown(f"""<div style="background:#fff3f3;border:1.5px solid #fca5a5;
+        padding:12px;border-radius:10px;text-align:center;">
+        <div style="font-size:12px;color:#888;margin-bottom:2px;">👩 쏘야 지출</div>
+        <div style="font-size:18px;font-weight:700;color:#ef4444;">{soya_total:,}원</div>
+    </div>""", unsafe_allow_html=True)
+    p2.markdown(f"""<div style="background:#eff6ff;border:1.5px solid #93c5fd;
+        padding:12px;border-radius:10px;text-align:center;">
+        <div style="font-size:12px;color:#888;margin-bottom:2px;">🧑 병하 지출</div>
+        <div style="font-size:18px;font-weight:700;color:#3b82f6;">{byungha_total:,}원</div>
+    </div>""", unsafe_allow_html=True)
+    p3.markdown(f"""<div style="background:#f0fdf4;border:1.5px solid #86efac;
+        padding:12px;border-radius:10px;text-align:center;">
+        <div style="font-size:12px;color:#888;margin-bottom:2px;">🤝 공통 지출</div>
+        <div style="font-size:18px;font-weight:700;color:#22c55e;">{common_total:,}원</div>
+    </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── 뷰 탭 ─────────────────────────────────────────
+    bv1, bv2, bv3 = st.tabs(["📊 카테고리별", "📅 날짜별", "📋 전체 목록"])
+
+    with bv1:
+        if total_planned > 0 or expenses:
+            for cat in BUDGET_CATEGORIES:
+                p = planned.get(cat, 0)
+                a = sum(e["amount"] for e in expenses if e.get("category") == cat)
+                if p == 0 and a == 0:
+                    continue
+                pct = min(int(a / p * 100), 100) if p > 0 else 0
+                bar_col = "#ef4444" if (p > 0 and a >= p) else "#f7b731" if (p > 0 and pct >= 80) else "#43e97b"
+                st.markdown(f"""<div style="margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
                         <span>{cat}</span>
-                        <span style="color:#888;">{a:,} / {p:,}원 ({pct}%)</span>
+                        <span style="color:#888;">{a:,}원 / {p:,}원 계획 ({pct}%)</span>
                     </div>
                     <div style="background:#f0f0f0;border-radius:8px;height:10px;overflow:hidden;">
-                        <div style="width:{pct}%;background:{bar_color};height:100%;
-                                    border-radius:8px;transition:width .3s;"></div>
-                    </div>
-                </div>""", unsafe_allow_html=True)
+                        <div style="width:{pct}%;background:{bar_col};height:100%;border-radius:8px;"></div>
+                    </div></div>""", unsafe_allow_html=True)
+        else:
+            st.info("예산을 설정하거나 지출을 추가해 주세요.")
+
+    with bv2:
+        if expenses:
+            df_exp = pd.DataFrame(expenses).sort_values("date")
+            for d in df_exp["date"].unique():
+                day_rows = df_exp[df_exp["date"] == d]
+                day_total = day_rows["amount"].sum()
+                st.markdown(f"**📅 {d}** — 합계: **{day_total:,}원**")
+                for _, row in day_rows.iterrows():
+                    _pc = "#ef4444" if row.get("person") == "쏘야" else "#3b82f6" if row.get("person") == "병하" else "#22c55e"
+                    st.markdown(f"""<div style="padding:4px 12px;border-left:3px solid {_pc};margin:2px 0;font-size:13px;">
+                        <span style="color:{_pc};font-weight:600;">{row.get('person','')}</span>
+                        &nbsp;{row.get('category','')} — {row.get('description','')}
+                        <span style="float:right;font-weight:600;">{int(row['amount']):,}원</span>
+                    </div>""", unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+        else:
+            st.info("아직 등록된 지출이 없습니다.")
+
+    with bv3:
+        if expenses:
+            pf = st.selectbox("인물 필터", ["전체"] + PERSONS, key="budget_pf")
+            filtered = sorted(
+                [e for e in expenses if pf == "전체" or e.get("person") == pf],
+                key=lambda x: x.get("date", "")
+            )
+            _hcols = st.columns([1.5, 2, 1.2, 1.8, 2, 0.8])
+            for _c, _l in zip(_hcols, ["날짜", "카테고리", "인물", "금액", "내용", ""]):
+                _c.markdown(f"<small style='color:#999;font-weight:600;'>{_l}</small>", unsafe_allow_html=True)
+            st.markdown("<hr style='margin:2px 0 4px 0;border-color:#ebebeb;'>", unsafe_allow_html=True)
+            for ei, e in enumerate(filtered):
+                orig_i = expenses.index(e)
+                _pc = "#ef4444" if e.get("person") == "쏘야" else "#3b82f6" if e.get("person") == "병하" else "#22c55e"
+                ec0, ec1, ec2, ec3, ec4, ec5 = st.columns([1.5, 2, 1.2, 1.8, 2, 0.8])
+                ec0.markdown(f"<span style='font-size:13px;'>{e.get('date','')}</span>", unsafe_allow_html=True)
+                ec1.markdown(f"<span style='font-size:13px;'>{e.get('category','')}</span>", unsafe_allow_html=True)
+                ec2.markdown(f"<span style='font-size:13px;color:{_pc};font-weight:600;'>{e.get('person','')}</span>", unsafe_allow_html=True)
+                ec3.markdown(f"<span style='font-size:13px;font-weight:600;'>{int(e.get('amount',0)):,}원</span>", unsafe_allow_html=True)
+                ec4.markdown(f"<span style='font-size:12px;color:#777;'>{e.get('description','')}</span>", unsafe_allow_html=True)
+                with ec5:
+                    if st.button("🗑️", key=f"del_exp_{orig_i}", use_container_width=True):
+                        st.session_state['budget']['expenses'].pop(orig_i)
+                        save_budget(st.session_state['budget'])
+                        st.rerun()
+        else:
+            st.info("아직 등록된 지출이 없습니다.")
 
 # ---- TAB 6: 준비물 체크리스트 ----
 with tab6:
     st.header("📋 준비물 체크리스트")
 
-    cl_items = st.session_state['checklist']
-    total_items = len(cl_items)
-    checked_count = sum(1 for it in cl_items if it.get('checked', False))
+    def _render_checklist(person):
+        cl_items = st.session_state.get(f'checklist_{person}', [])
+        total_items = len(cl_items)
+        checked_count = sum(1 for it in cl_items if it.get('checked', False))
+        pct_done = int(checked_count / total_items * 100) if total_items > 0 else 0
+        bar_col = "#43e97b" if pct_done == 100 else "#667eea"
 
-    # 진행 표시
-    pct_done = int(checked_count / total_items * 100) if total_items > 0 else 0
-    cl_bar_color = "#43e97b" if pct_done == 100 else "#667eea"
-    st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-        <div style="flex:1;background:#f0f0f0;border-radius:8px;height:12px;overflow:hidden;">
-            <div style="width:{pct_done}%;background:{cl_bar_color};height:100%;border-radius:8px;"></div>
-        </div>
-        <span style="font-size:13px;color:#666;white-space:nowrap;">
-            {checked_count}/{total_items} 완료 ({pct_done}%)
-        </span>
-    </div>""", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+            <div style="flex:1;background:#f0f0f0;border-radius:8px;height:12px;overflow:hidden;">
+                <div style="width:{pct_done}%;background:{bar_col};height:100%;border-radius:8px;"></div>
+            </div>
+            <span style="font-size:13px;color:#666;white-space:nowrap;">{checked_count}/{total_items} 완료 ({pct_done}%)</span>
+        </div>""", unsafe_allow_html=True)
 
-    # 카테고리별 표시
-    categories = []
-    for it in cl_items:
-        cat = it.get('category', '기타')
-        if cat not in categories:
-            categories.append(cat)
+        categories = []
+        for it in cl_items:
+            c = it.get('category', '기타')
+            if c not in categories:
+                categories.append(c)
 
-    for cat in categories:
-        cat_items = [(idx, it) for idx, it in enumerate(cl_items) if it.get('category') == cat]
-        cat_checked = sum(1 for _, it in cat_items if it.get('checked', False))
-        with st.expander(f"**{cat}** ({cat_checked}/{len(cat_items)})", expanded=True):
-            for idx, it in cat_items:
-                cl1, cl2 = st.columns([10, 1])
-                checked = cl1.checkbox(
-                    it.get('name', ''),
-                    value=it.get('checked', False),
-                    key=f"cl_{idx}"
-                )
-                if checked != it.get('checked', False):
-                    st.session_state['checklist'][idx]['checked'] = checked
-                    save_checklist(st.session_state['checklist'])
-                    st.rerun()
-                with cl2:
-                    if st.button("🗑️", key=f"del_cl_{idx}", use_container_width=True):
-                        st.session_state['checklist'].pop(idx)
-                        save_checklist(st.session_state['checklist'])
+        for cat in categories:
+            cat_items = [(idx, it) for idx, it in enumerate(cl_items) if it.get('category') == cat]
+            cat_checked = sum(1 for _, it in cat_items if it.get('checked', False))
+            with st.expander(f"**{cat}** ({cat_checked}/{len(cat_items)})", expanded=True):
+                for idx, it in cat_items:
+                    cl1, cl2 = st.columns([10, 1], vertical_alignment="center")
+                    new_val = cl1.checkbox(
+                        it.get('name', ''), value=it.get('checked', False),
+                        key=f"cl_{person}_{idx}"
+                    )
+                    if new_val != it.get('checked', False):
+                        st.session_state[f'checklist_{person}'][idx]['checked'] = new_val
+                        save_checklist(person, st.session_state[f'checklist_{person}'])
                         st.rerun()
+                    with cl2:
+                        if st.button("🗑️", key=f"del_cl_{person}_{idx}", use_container_width=True):
+                            st.session_state[f'checklist_{person}'].pop(idx)
+                            save_checklist(person, st.session_state[f'checklist_{person}'])
+                            st.rerun()
 
-    st.divider()
+        st.divider()
+        with st.form(f"cl_add_{person}"):
+            st.markdown("##### ➕ 항목 추가")
+            ac1, ac2 = st.columns([2, 3])
+            with ac1:
+                add_cat = st.selectbox("카테고리", categories + ["직접 입력"], key=f"cl_sel_{person}")
+            with ac2:
+                add_name = st.text_input("항목 이름", placeholder="예: 두꺼운 패딩", key=f"cl_txt_{person}")
+            custom_cat = ""
+            if add_cat == "직접 입력":
+                custom_cat = st.text_input("새 카테고리 이름", key=f"cl_cust_{person}")
+            if st.form_submit_button("추가") and add_name:
+                final_cat = custom_cat if add_cat == "직접 입력" else add_cat
+                st.session_state[f'checklist_{person}'].append(
+                    {"category": final_cat, "name": add_name, "checked": False}
+                )
+                save_checklist(person, st.session_state[f'checklist_{person}'])
+                st.rerun()
 
-    # 아이템 추가
-    with st.form("checklist_add_form"):
-        st.markdown("##### ➕ 항목 추가")
-        add_cols = st.columns([2, 3, 1])
-        with add_cols[0]:
-            new_cl_cat = st.selectbox("카테고리",
-                options=categories + ["직접 입력"],
-                key="new_cl_cat_sel")
-        with add_cols[1]:
-            new_cl_name = st.text_input("항목 이름", placeholder="예: 두꺼운 패딩")
-        new_cl_cat_custom = ""
-        if new_cl_cat == "직접 입력":
-            new_cl_cat_custom = st.text_input("새 카테고리 이름")
-        cl_add_submitted = st.form_submit_button("추가")
-        if cl_add_submitted and new_cl_name:
-            final_cat = new_cl_cat_custom if new_cl_cat == "직접 입력" else new_cl_cat
-            st.session_state['checklist'].append({"category": final_cat, "name": new_cl_name, "checked": False})
-            save_checklist(st.session_state['checklist'])
-            st.success(f"'{new_cl_name}' 항목이 추가되었습니다!")
-            st.rerun()
+        st.divider()
+        rr1, rr2 = st.columns([4, 1])
+        with rr1:
+            st.markdown("<small style='color:#aaa;'>기본 체크리스트로 초기화하면 현재 목록이 삭제됩니다.</small>", unsafe_allow_html=True)
+        with rr2:
+            if st.button("🔄 초기화", key=f"reset_cl_{person}", use_container_width=True):
+                st.session_state[f'checklist_{person}'] = [dict(x) for x in DEFAULT_CHECKLIST]
+                save_checklist(person, st.session_state[f'checklist_{person}'])
+                st.rerun()
 
-    # 전체 초기화 버튼
-    st.divider()
-    rc1, rc2 = st.columns([4, 1])
-    with rc1:
-        st.markdown("<small style='color:#aaa;'>기본 체크리스트로 초기화하면 현재 목록이 삭제됩니다.</small>", unsafe_allow_html=True)
-    with rc2:
-        if st.button("🔄 초기화", use_container_width=True):
-            st.session_state['checklist'] = [dict(x) for x in DEFAULT_CHECKLIST]
-            save_checklist(st.session_state['checklist'])
-            st.rerun()
+    cl_tab1, cl_tab2 = st.tabs(["👩 쏘야", "🧑 병하"])
+    with cl_tab1:
+        _render_checklist("쏘야")
+    with cl_tab2:
+        _render_checklist("병하")
 
 # ---- TAB 7: 맛집 리스트 ----
 with tab7:
