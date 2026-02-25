@@ -79,6 +79,60 @@ def load_itinerary():
 def save_itinerary(df):
     db.collection("travel_data").document("itinerary").set({"list": df.to_dict(orient="records")})
 
+def load_flights():
+    doc = db.collection("travel_data").document("flights").get()
+    if doc.exists:
+        return doc.to_dict().get("list", [])
+    return []
+
+def save_flights(flights):
+    db.collection("travel_data").document("flights").set({"list": flights})
+
+def load_hotels():
+    doc = db.collection("travel_data").document("hotels").get()
+    if doc.exists:
+        return doc.to_dict().get("list", [])
+    return []
+
+def save_hotels(hotels):
+    db.collection("travel_data").document("hotels").set({"list": hotels})
+
+def load_budget():
+    doc = db.collection("travel_data").document("budget").get()
+    if doc.exists:
+        return doc.to_dict().get("data", {})
+    return {}
+
+def save_budget(budget):
+    db.collection("travel_data").document("budget").set({"data": budget})
+
+def load_checklist():
+    doc = db.collection("travel_data").document("checklist").get()
+    if doc.exists:
+        return doc.to_dict().get("list", [])
+    return []
+
+def save_checklist(items):
+    db.collection("travel_data").document("checklist").set({"list": items})
+
+def load_restaurants():
+    doc = db.collection("travel_data").document("restaurants").get()
+    if doc.exists:
+        return doc.to_dict().get("list", [])
+    return []
+
+def save_restaurants(restaurants):
+    db.collection("travel_data").document("restaurants").set({"list": restaurants})
+
+def load_settings():
+    doc = db.collection("travel_data").document("settings").get()
+    if doc.exists:
+        return doc.to_dict()
+    return {}
+
+def save_settings(settings):
+    db.collection("travel_data").document("settings").set(settings)
+
 # --- Google Maps 초기화 ---
 try:
     gmaps = googlemaps.Client(key=st.secrets["GOOGLE_MAPS_API_KEY"])
@@ -151,6 +205,43 @@ def get_segment_times(places):
     st.session_state['segment_times_cache'] = {'key': cache_key, 'times': times}
     return times
 
+# --- 기본 체크리스트 항목 ---
+DEFAULT_CHECKLIST = [
+    {"category": "여권/서류", "name": "여권", "checked": False},
+    {"category": "여권/서류", "name": "비자 확인", "checked": False},
+    {"category": "여권/서류", "name": "항공권 출력/저장", "checked": False},
+    {"category": "여권/서류", "name": "여행자 보험증", "checked": False},
+    {"category": "여권/서류", "name": "국제운전면허증", "checked": False},
+    {"category": "의류", "name": "속옷/양말 (충분히)", "checked": False},
+    {"category": "의류", "name": "티셔츠", "checked": False},
+    {"category": "의류", "name": "바지/반바지", "checked": False},
+    {"category": "의류", "name": "자켓/스웨터", "checked": False},
+    {"category": "의류", "name": "수영복", "checked": False},
+    {"category": "의류", "name": "잠옷", "checked": False},
+    {"category": "세면도구", "name": "칫솔/치약", "checked": False},
+    {"category": "세면도구", "name": "샴푸/린스", "checked": False},
+    {"category": "세면도구", "name": "선크림", "checked": False},
+    {"category": "세면도구", "name": "면도기", "checked": False},
+    {"category": "전자기기", "name": "스마트폰 + 충전기", "checked": False},
+    {"category": "전자기기", "name": "보조배터리", "checked": False},
+    {"category": "전자기기", "name": "카메라", "checked": False},
+    {"category": "전자기기", "name": "이어폰", "checked": False},
+    {"category": "전자기기", "name": "멀티 어댑터", "checked": False},
+    {"category": "의약품", "name": "두통약", "checked": False},
+    {"category": "의약품", "name": "소화제", "checked": False},
+    {"category": "의약품", "name": "지사제", "checked": False},
+    {"category": "의약품", "name": "밴드/일회용품", "checked": False},
+    {"category": "의약품", "name": "멀미약", "checked": False},
+    {"category": "기타", "name": "선글라스", "checked": False},
+    {"category": "기타", "name": "모자", "checked": False},
+    {"category": "기타", "name": "우산/우비", "checked": False},
+    {"category": "기타", "name": "지갑/카드", "checked": False},
+    {"category": "기타", "name": "현금 (USD)", "checked": False},
+]
+
+# 예산 기본 카테고리
+BUDGET_CATEGORIES = ["✈️ 항공", "🏨 숙소", "🍽️ 식비", "🎢 관광/액티비티", "🛍️ 쇼핑", "🚗 교통/렌터카", "💊 기타"]
+
 # --- 초기 세션 상태 설정 (Firebase에서 불러오기) ---
 if 'places' not in st.session_state:
     st.session_state['places'] = load_places()
@@ -172,6 +263,19 @@ if 'segment_times_cache' not in st.session_state:
     st.session_state['segment_times_cache'] = {}
 if 'show_segment_times' not in st.session_state:
     st.session_state['show_segment_times'] = False
+if 'flights' not in st.session_state:
+    st.session_state['flights'] = load_flights()
+if 'hotels' not in st.session_state:
+    st.session_state['hotels'] = load_hotels()
+if 'budget' not in st.session_state:
+    st.session_state['budget'] = load_budget()
+if 'checklist' not in st.session_state:
+    loaded_cl = load_checklist()
+    st.session_state['checklist'] = loaded_cl if loaded_cl else [dict(x) for x in DEFAULT_CHECKLIST]
+if 'restaurants' not in st.session_state:
+    st.session_state['restaurants'] = load_restaurants()
+if 'settings' not in st.session_state:
+    st.session_state['settings'] = load_settings()
 
 st.title("🚙 우리들의 미국 서부 여행 플래너")
 
@@ -224,8 +328,60 @@ with st.sidebar:
         st.session_state["authenticated"] = False
         st.rerun()
 
+    # --- D-Day 카운트다운 ---
+    st.divider()
+    st.markdown("#### 📅 D-Day 카운트다운")
+    _settings = st.session_state.get('settings', {})
+    _dep_str = _settings.get('departure_date', '')
+    try:
+        _dep_default = date_type.fromisoformat(_dep_str) if _dep_str else date_type(2026, 5, 1)
+    except Exception:
+        _dep_default = date_type(2026, 5, 1)
+
+    _new_dep = st.date_input("출발일 설정", value=_dep_default, key="sidebar_dep_date")
+    if str(_new_dep) != _dep_str:
+        st.session_state['settings']['departure_date'] = str(_new_dep)
+        save_settings(st.session_state['settings'])
+        st.rerun()
+
+    _dep = _new_dep
+    _today = date_type.today()
+    _delta = (_dep - _today).days
+    if _delta > 0:
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;
+                    padding:16px;border-radius:12px;text-align:center;margin-top:8px;">
+            <div style="font-size:13px;opacity:.9;margin-bottom:4px;">여행까지</div>
+            <div style="font-size:44px;font-weight:900;line-height:1;">{_delta}</div>
+            <div style="font-size:17px;font-weight:600;">일 남았어요! ✈️</div>
+            <div style="font-size:11px;opacity:.8;margin-top:6px;">{_dep.strftime('%Y년 %m월 %d일')}</div>
+        </div>""", unsafe_allow_html=True)
+    elif _delta == 0:
+        st.markdown("""
+        <div style="background:linear-gradient(135deg,#f093fb,#f5576c);color:white;
+                    padding:16px;border-radius:12px;text-align:center;margin-top:8px;">
+            <div style="font-size:28px;font-weight:900;">D-Day! 🎉</div>
+            <div style="font-size:14px;margin-top:4px;">오늘 출발이에요!</div>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#43e97b,#38f9d7);color:white;
+                    padding:16px;border-radius:12px;text-align:center;margin-top:8px;">
+            <div style="font-size:13px;opacity:.9;margin-bottom:4px;">여행 중! 🌴</div>
+            <div style="font-size:32px;font-weight:900;">D+{abs(_delta)}</div>
+            <div style="font-size:11px;opacity:.8;margin-top:4px;">출발일: {_dep.strftime('%Y년 %m월 %d일')}</div>
+        </div>""", unsafe_allow_html=True)
+
 # 탭 구성
-tab1, tab2 = st.tabs(["🗺️ 지도 및 경로 탐색", "📅 일정 관리"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "🗺️ 지도 및 경로",
+    "📅 일정 관리",
+    "✈️ 항공/교통",
+    "🏨 숙소 관리",
+    "💰 예산 관리",
+    "📋 준비물",
+    "🍽️ 맛집 리스트",
+])
 
 with tab1:
     col1, col2 = st.columns([1, 2])
@@ -868,3 +1024,387 @@ with tab2:
         )
     else:
         st.info("아직 추가된 일정이 없습니다.")
+
+# ---- TAB 3: 항공/교통 정보 ----
+with tab3:
+    st.header("✈️ 항공 및 교통 정보")
+
+    with st.form("flight_form"):
+        st.markdown("##### 항공편 추가")
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            f_type = st.selectbox("구분", ["출발편", "귀국편", "경유편", "국내선"])
+        with fc2:
+            f_airline = st.text_input("항공사", placeholder="예: 대한항공")
+        with fc3:
+            f_no = st.text_input("편명", placeholder="예: KE011")
+
+        fc4, fc5 = st.columns(2)
+        with fc4:
+            f_dep_airport = st.text_input("출발 공항", placeholder="예: 인천 (ICN)")
+            f_dep_dt = st.text_input("출발 일시", placeholder="예: 2026-05-01 14:00")
+        with fc5:
+            f_arr_airport = st.text_input("도착 공항", placeholder="예: 로스앤젤레스 (LAX)")
+            f_arr_dt = st.text_input("도착 일시", placeholder="예: 2026-05-01 09:00")
+
+        fc6, fc7 = st.columns(2)
+        with fc6:
+            f_seat = st.text_input("좌석 번호", placeholder="예: 42A")
+        with fc7:
+            f_confirm = st.text_input("예약 확인 번호", placeholder="예: ABC123456")
+
+        f_memo = st.text_input("메모", placeholder="예: 수하물 23kg 포함")
+        f_submitted = st.form_submit_button("✈️ 항공편 추가")
+
+        if f_submitted and f_airline and f_no:
+            new_flight = {
+                "type": f_type, "airline": f_airline, "flight_no": f_no,
+                "dep_airport": f_dep_airport, "dep_datetime": f_dep_dt,
+                "arr_airport": f_arr_airport, "arr_datetime": f_arr_dt,
+                "seat": f_seat, "confirmation": f_confirm, "memo": f_memo,
+            }
+            st.session_state['flights'].append(new_flight)
+            save_flights(st.session_state['flights'])
+            st.success(f"'{f_airline} {f_no}' 항공편이 추가되었습니다!")
+            st.rerun()
+        elif f_submitted:
+            st.warning("항공사와 편명은 필수 입력 항목입니다.")
+
+    st.divider()
+
+    if st.session_state['flights']:
+        st.subheader("📋 등록된 항공편")
+        TYPE_COLORS = {"출발편": "#667eea", "귀국편": "#f5576c", "경유편": "#f093fb", "국내선": "#43e97b"}
+        for i, fl in enumerate(st.session_state['flights']):
+            c_info, c_del = st.columns([11, 1])
+            color = TYPE_COLORS.get(fl.get('type', '출발편'), "#667eea")
+            with c_info:
+                st.markdown(f"""
+                <div style="border-left:4px solid {color};padding:10px 14px;
+                            background:#fafafa;border-radius:0 8px 8px 0;margin:4px 0;">
+                    <span style="background:{color};color:white;font-size:11px;
+                                 padding:2px 8px;border-radius:10px;font-weight:600;">
+                        {fl.get('type','')}</span>&nbsp;
+                    <strong style="font-size:15px;">{fl.get('airline','')} {fl.get('flight_no','')}</strong>
+                    {f"<span style='color:#888;font-size:12px;margin-left:8px;'>좌석 {fl.get('seat','')}</span>" if fl.get('seat') else ""}
+                    <br>
+                    <span style="font-size:13px;color:#444;">
+                        🛫 {fl.get('dep_airport','')} {fl.get('dep_datetime','')}
+                        &nbsp;→&nbsp;
+                        🛬 {fl.get('arr_airport','')} {fl.get('arr_datetime','')}
+                    </span>
+                    {f"<br><span style='font-size:12px;color:#888;'>📌 예약번호: {fl.get('confirmation','')}</span>" if fl.get('confirmation') else ""}
+                    {f"<br><span style='font-size:12px;color:#888;'>📝 {fl.get('memo','')}</span>" if fl.get('memo') else ""}
+                </div>""", unsafe_allow_html=True)
+            with c_del:
+                if st.button("🗑️", key=f"del_flight_{i}", use_container_width=True):
+                    st.session_state['flights'].pop(i)
+                    save_flights(st.session_state['flights'])
+                    st.rerun()
+    else:
+        st.info("아직 등록된 항공편이 없습니다.")
+
+# ---- TAB 4: 숙소 관리 ----
+with tab4:
+    st.header("🏨 숙소 관리")
+
+    with st.form("hotel_form"):
+        st.markdown("##### 숙소 추가")
+        hc1, hc2 = st.columns(2)
+        with hc1:
+            h_name = st.text_input("숙소 이름", placeholder="예: Marriott Downtown LA")
+            h_checkin = st.date_input("체크인 날짜", value=date_type(2026, 5, 1))
+            h_confirm = st.text_input("예약 확인 번호", placeholder="예: ABC123456")
+        with hc2:
+            h_addr = st.text_input("주소", placeholder="예: 333 S Figueroa St, Los Angeles")
+            h_checkout = st.date_input("체크아웃 날짜", value=date_type(2026, 5, 3))
+            h_memo = st.text_input("메모", placeholder="예: 조식 포함, 주차 가능")
+        h_submitted = st.form_submit_button("🏨 숙소 추가")
+
+        if h_submitted and h_name:
+            nights = (h_checkout - h_checkin).days
+            new_hotel = {
+                "name": h_name, "address": h_addr,
+                "checkin": str(h_checkin), "checkout": str(h_checkout),
+                "nights": nights, "confirmation": h_confirm, "memo": h_memo,
+            }
+            st.session_state['hotels'].append(new_hotel)
+            save_hotels(st.session_state['hotels'])
+            st.success(f"'{h_name}' 숙소가 추가되었습니다!")
+            st.rerun()
+        elif h_submitted:
+            st.warning("숙소 이름은 필수 입력 항목입니다.")
+
+    st.divider()
+
+    if st.session_state['hotels']:
+        st.subheader("📋 등록된 숙소 목록")
+        for i, ht in enumerate(sorted(st.session_state['hotels'], key=lambda x: x.get('checkin', ''))):
+            orig_i = st.session_state['hotels'].index(ht)
+            c_info, c_del = st.columns([11, 1])
+            with c_info:
+                nights_txt = f"{ht.get('nights', 0)}박" if ht.get('nights') else ""
+                st.markdown(f"""
+                <div style="border-left:4px solid #f7b731;padding:10px 14px;
+                            background:#fafafa;border-radius:0 8px 8px 0;margin:4px 0;">
+                    <strong style="font-size:15px;">🏨 {ht.get('name','')}</strong>
+                    {f"<span style='color:#888;font-size:12px;margin-left:8px;'>{nights_txt}</span>" if nights_txt else ""}
+                    <br>
+                    <span style="font-size:13px;color:#444;">
+                        📅 체크인: <strong>{ht.get('checkin','')}</strong>
+                        &nbsp;→&nbsp;
+                        체크아웃: <strong>{ht.get('checkout','')}</strong>
+                    </span>
+                    {f"<br><span style='font-size:12px;color:#888;'>📍 {ht.get('address','')}</span>" if ht.get('address') else ""}
+                    {f"<br><span style='font-size:12px;color:#888;'>📌 예약번호: {ht.get('confirmation','')}</span>" if ht.get('confirmation') else ""}
+                    {f"<br><span style='font-size:12px;color:#888;'>📝 {ht.get('memo','')}</span>" if ht.get('memo') else ""}
+                </div>""", unsafe_allow_html=True)
+            with c_del:
+                if st.button("🗑️", key=f"del_hotel_{i}", use_container_width=True):
+                    st.session_state['hotels'].pop(orig_i)
+                    save_hotels(st.session_state['hotels'])
+                    st.rerun()
+    else:
+        st.info("아직 등록된 숙소가 없습니다.")
+
+# ---- TAB 5: 예산 관리 ----
+with tab5:
+    st.header("💰 예산 관리")
+
+    budget = st.session_state['budget']
+    # 초기화되지 않은 카테고리 보완
+    for cat in BUDGET_CATEGORIES:
+        if cat not in budget:
+            budget[cat] = {"planned": 0, "actual": 0}
+
+    st.markdown("##### 카테고리별 예산 입력 (단위: 원)")
+    st.markdown("<small style='color:#888;'>예산과 실제 지출을 입력하세요. 자동으로 합계가 계산됩니다.</small>", unsafe_allow_html=True)
+
+    with st.form("budget_form"):
+        # 헤더
+        bh0, bh1, bh2 = st.columns([2.5, 2, 2])
+        bh0.markdown("<small style='color:#999;font-weight:600;'>카테고리</small>", unsafe_allow_html=True)
+        bh1.markdown("<small style='color:#999;font-weight:600;'>예산 (원)</small>", unsafe_allow_html=True)
+        bh2.markdown("<small style='color:#999;font-weight:600;'>실제 지출 (원)</small>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin:2px 0 6px 0;border-color:#ebebeb;'>", unsafe_allow_html=True)
+
+        new_budget = {}
+        for cat in BUDGET_CATEGORIES:
+            bc0, bc1, bc2 = st.columns([2.5, 2, 2])
+            bc0.markdown(f"<span style='font-size:14px;'>{cat}</span>", unsafe_allow_html=True)
+            planned_val = budget[cat].get("planned", 0)
+            actual_val = budget[cat].get("actual", 0)
+            planned = bc1.number_input("", min_value=0, value=int(planned_val), step=10000,
+                                        key=f"planned_{cat}", label_visibility="collapsed")
+            actual = bc2.number_input("", min_value=0, value=int(actual_val), step=10000,
+                                       key=f"actual_{cat}", label_visibility="collapsed")
+            new_budget[cat] = {"planned": planned, "actual": actual}
+
+        b_submitted = st.form_submit_button("💾 저장")
+        if b_submitted:
+            st.session_state['budget'] = new_budget
+            save_budget(new_budget)
+            st.success("예산이 저장되었습니다!")
+            st.rerun()
+
+    st.divider()
+
+    # 요약 카드
+    total_planned = sum(budget[c].get("planned", 0) for c in BUDGET_CATEGORIES)
+    total_actual = sum(budget[c].get("actual", 0) for c in BUDGET_CATEGORIES)
+    remaining = total_planned - total_actual
+
+    sc1, sc2, sc3 = st.columns(3)
+    sc1.markdown(f"""
+    <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;
+                padding:16px;border-radius:12px;text-align:center;">
+        <div style="font-size:12px;opacity:.85;margin-bottom:4px;">총 예산</div>
+        <div style="font-size:22px;font-weight:800;">{total_planned:,}원</div>
+    </div>""", unsafe_allow_html=True)
+    sc2.markdown(f"""
+    <div style="background:linear-gradient(135deg,#f093fb,#f5576c);color:white;
+                padding:16px;border-radius:12px;text-align:center;">
+        <div style="font-size:12px;opacity:.85;margin-bottom:4px;">총 지출</div>
+        <div style="font-size:22px;font-weight:800;">{total_actual:,}원</div>
+    </div>""", unsafe_allow_html=True)
+    rem_color = "#43e97b,#38f9d7" if remaining >= 0 else "#fc5c65,#fd9644"
+    sc3.markdown(f"""
+    <div style="background:linear-gradient(135deg,{rem_color});color:white;
+                padding:16px;border-radius:12px;text-align:center;">
+        <div style="font-size:12px;opacity:.85;margin-bottom:4px;">{'잔액' if remaining >= 0 else '초과'}</div>
+        <div style="font-size:22px;font-weight:800;">{abs(remaining):,}원</div>
+    </div>""", unsafe_allow_html=True)
+
+    # 카테고리별 지출 비율
+    if total_planned > 0:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("##### 카테고리별 진행률")
+        for cat in BUDGET_CATEGORIES:
+            p = budget[cat].get("planned", 0)
+            a = budget[cat].get("actual", 0)
+            if p > 0:
+                pct = min(int(a / p * 100), 100)
+                bar_color = "#ef4444" if pct >= 100 else "#f7b731" if pct >= 80 else "#43e97b"
+                st.markdown(f"""
+                <div style="margin-bottom:8px;">
+                    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px;">
+                        <span>{cat}</span>
+                        <span style="color:#888;">{a:,} / {p:,}원 ({pct}%)</span>
+                    </div>
+                    <div style="background:#f0f0f0;border-radius:8px;height:10px;overflow:hidden;">
+                        <div style="width:{pct}%;background:{bar_color};height:100%;
+                                    border-radius:8px;transition:width .3s;"></div>
+                    </div>
+                </div>""", unsafe_allow_html=True)
+
+# ---- TAB 6: 준비물 체크리스트 ----
+with tab6:
+    st.header("📋 준비물 체크리스트")
+
+    cl_items = st.session_state['checklist']
+    total_items = len(cl_items)
+    checked_count = sum(1 for it in cl_items if it.get('checked', False))
+
+    # 진행 표시
+    pct_done = int(checked_count / total_items * 100) if total_items > 0 else 0
+    cl_bar_color = "#43e97b" if pct_done == 100 else "#667eea"
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <div style="flex:1;background:#f0f0f0;border-radius:8px;height:12px;overflow:hidden;">
+            <div style="width:{pct_done}%;background:{cl_bar_color};height:100%;border-radius:8px;"></div>
+        </div>
+        <span style="font-size:13px;color:#666;white-space:nowrap;">
+            {checked_count}/{total_items} 완료 ({pct_done}%)
+        </span>
+    </div>""", unsafe_allow_html=True)
+
+    # 카테고리별 표시
+    categories = []
+    for it in cl_items:
+        cat = it.get('category', '기타')
+        if cat not in categories:
+            categories.append(cat)
+
+    for cat in categories:
+        cat_items = [(idx, it) for idx, it in enumerate(cl_items) if it.get('category') == cat]
+        cat_checked = sum(1 for _, it in cat_items if it.get('checked', False))
+        with st.expander(f"**{cat}** ({cat_checked}/{len(cat_items)})", expanded=True):
+            for idx, it in cat_items:
+                cl1, cl2 = st.columns([10, 1])
+                checked = cl1.checkbox(
+                    it.get('name', ''),
+                    value=it.get('checked', False),
+                    key=f"cl_{idx}"
+                )
+                if checked != it.get('checked', False):
+                    st.session_state['checklist'][idx]['checked'] = checked
+                    save_checklist(st.session_state['checklist'])
+                    st.rerun()
+                with cl2:
+                    if st.button("🗑️", key=f"del_cl_{idx}", use_container_width=True):
+                        st.session_state['checklist'].pop(idx)
+                        save_checklist(st.session_state['checklist'])
+                        st.rerun()
+
+    st.divider()
+
+    # 아이템 추가
+    with st.form("checklist_add_form"):
+        st.markdown("##### ➕ 항목 추가")
+        add_cols = st.columns([2, 3, 1])
+        with add_cols[0]:
+            new_cl_cat = st.selectbox("카테고리",
+                options=categories + ["직접 입력"],
+                key="new_cl_cat_sel")
+        with add_cols[1]:
+            new_cl_name = st.text_input("항목 이름", placeholder="예: 두꺼운 패딩")
+        new_cl_cat_custom = ""
+        if new_cl_cat == "직접 입력":
+            new_cl_cat_custom = st.text_input("새 카테고리 이름")
+        cl_add_submitted = st.form_submit_button("추가")
+        if cl_add_submitted and new_cl_name:
+            final_cat = new_cl_cat_custom if new_cl_cat == "직접 입력" else new_cl_cat
+            st.session_state['checklist'].append({"category": final_cat, "name": new_cl_name, "checked": False})
+            save_checklist(st.session_state['checklist'])
+            st.success(f"'{new_cl_name}' 항목이 추가되었습니다!")
+            st.rerun()
+
+    # 전체 초기화 버튼
+    st.divider()
+    rc1, rc2 = st.columns([4, 1])
+    with rc1:
+        st.markdown("<small style='color:#aaa;'>기본 체크리스트로 초기화하면 현재 목록이 삭제됩니다.</small>", unsafe_allow_html=True)
+    with rc2:
+        if st.button("🔄 초기화", use_container_width=True):
+            st.session_state['checklist'] = [dict(x) for x in DEFAULT_CHECKLIST]
+            save_checklist(st.session_state['checklist'])
+            st.rerun()
+
+# ---- TAB 7: 맛집 리스트 ----
+with tab7:
+    st.header("🍽️ 맛집 리스트")
+
+    CUISINE_TYPES = ["🍔 버거/패스트푸드", "🍕 피자/이탈리안", "🌮 멕시칸", "🍱 일식/아시안",
+                     "🥩 스테이크/바베큐", "🦞 씨푸드", "☕ 카페/디저트", "🍷 파인다이닝", "🍜 기타"]
+
+    with st.form("restaurant_form"):
+        st.markdown("##### 맛집 추가")
+        rc1, rc2, rc3 = st.columns([3, 2, 2])
+        with rc1:
+            r_name = st.text_input("식당 이름", placeholder="예: In-N-Out Burger")
+        with rc2:
+            r_cuisine = st.selectbox("음식 종류", CUISINE_TYPES)
+        with rc3:
+            r_city = st.text_input("도시/위치", placeholder="예: Los Angeles")
+        r_memo = st.text_input("메모", placeholder="예: 머스트 오더: 더블더블 Animal Style")
+        r_submitted = st.form_submit_button("🍽️ 맛집 추가")
+
+        if r_submitted and r_name:
+            new_rest = {
+                "name": r_name, "cuisine": r_cuisine,
+                "city": r_city, "memo": r_memo, "visited": False,
+            }
+            st.session_state['restaurants'].append(new_rest)
+            save_restaurants(st.session_state['restaurants'])
+            st.success(f"'{r_name}' 맛집이 추가되었습니다!")
+            st.rerun()
+        elif r_submitted:
+            st.warning("식당 이름은 필수 입력 항목입니다.")
+
+    st.divider()
+
+    if st.session_state['restaurants']:
+        rests = st.session_state['restaurants']
+        not_visited = [r for r in rests if not r.get('visited', False)]
+        visited = [r for r in rests if r.get('visited', False)]
+        st.markdown(f"**총 {len(rests)}곳** — 방문 완료 {len(visited)}곳 / 방문 예정 {len(not_visited)}곳")
+
+        for section_label, section_list in [("⭕ 방문 예정", not_visited), ("✅ 방문 완료", visited)]:
+            if section_list:
+                st.markdown(f"###### {section_label}")
+                for r in section_list:
+                    orig_i = rests.index(r)
+                    rc_info, rc_check, rc_del = st.columns([8, 2, 1])
+                    with rc_info:
+                        faded = "opacity:.5;" if r.get('visited') else ""
+                        visited_badge = "<span style='background:#43e97b;color:white;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;'>방문완료</span>" if r.get('visited') else ""
+                        st.markdown(f"""
+                        <div style="{faded}padding:6px 0;">
+                            <strong style="font-size:14px;">{r.get('name','')}</strong>{visited_badge}
+                            <span style="font-size:12px;color:#888;margin-left:8px;">{r.get('cuisine','')}</span>
+                            {f"<br><span style='font-size:12px;color:#666;'>📍 {r.get('city','')}</span>" if r.get('city') else ""}
+                            {f"<br><span style='font-size:12px;color:#aaa;'>📝 {r.get('memo','')}</span>" if r.get('memo') else ""}
+                        </div>""", unsafe_allow_html=True)
+                    with rc_check:
+                        btn_label = "↩️ 방문 취소" if r.get('visited') else "✅ 방문 완료"
+                        if st.button(btn_label, key=f"visit_{orig_i}", use_container_width=True):
+                            st.session_state['restaurants'][orig_i]['visited'] = not r.get('visited', False)
+                            save_restaurants(st.session_state['restaurants'])
+                            st.rerun()
+                    with rc_del:
+                        if st.button("🗑️", key=f"del_rest_{orig_i}", use_container_width=True):
+                            st.session_state['restaurants'].pop(orig_i)
+                            save_restaurants(st.session_state['restaurants'])
+                            st.rerun()
+    else:
+        st.info("아직 등록된 맛집이 없습니다. 가고 싶은 맛집을 추가해 보세요! 🍜")
