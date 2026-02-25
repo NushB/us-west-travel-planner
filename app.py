@@ -178,10 +178,16 @@ st.title("🚙 우리들의 미국 서부 여행 플래너")
 # 전역 CSS: 행 hover 하이라이트 & 마지막 컬럼 삭제 버튼 hover-reveal
 st.markdown("""
 <style>
-div[data-testid="stHorizontalBlock"]:hover {
-    background: rgba(0,0,0,0.025);
-    border-radius: 6px;
+/* 행에 패딩 추가 → 텍스트가 배경에 붙지 않게 */
+div[data-testid="stHorizontalBlock"] {
+    padding: 4px 10px;
+    border-radius: 8px;
+    align-items: center;
 }
+div[data-testid="stHorizontalBlock"]:hover {
+    background: rgba(0,0,0,0.03);
+}
+/* 마지막 컬럼 삭제 버튼: 기본 숨김 */
 div[data-testid="stHorizontalBlock"]
   > div[data-testid="stColumn"]:last-of-type
   button[data-testid="baseButton-secondary"] {
@@ -190,14 +196,19 @@ div[data-testid="stHorizontalBlock"]
     background-color: transparent !important;
     border: 1px solid transparent !important;
     color: #ef4444;
-    min-height: 28px;
+    padding: 2px 8px;
+    height: 30px;
+    min-height: unset;
+    font-size: 14px;
+    line-height: 1;
 }
+/* hover 시 버튼 표시 */
 div[data-testid="stHorizontalBlock"]:hover
   > div[data-testid="stColumn"]:last-of-type
   button[data-testid="baseButton-secondary"] {
     opacity: 1;
     background-color: #fee2e2 !important;
-    border-color: #fca5a5 !important;
+    border: 1px solid #fca5a5 !important;
     border-radius: 6px !important;
 }
 </style>
@@ -376,18 +387,16 @@ with tab1:
         if st.session_state['places']:
             st.divider()
             st.subheader("📋 추가된 장소 목록")
-            # 헤더
-            ph1, ph2, ph3 = st.columns([0.5, 7, 0.7])
-            ph1.markdown("<small style='color:#aaa; font-weight:600;'>#</small>", unsafe_allow_html=True)
-            ph2.markdown("<small style='color:#aaa; font-weight:600;'>장소명</small>", unsafe_allow_html=True)
-            ph3.markdown("")
-            st.markdown("<hr style='margin:2px 0 4px 0; border-color:#f0f0f0;'>", unsafe_allow_html=True)
+            st.markdown("<hr style='margin:4px 0 6px 0; border-color:#f0f0f0;'>", unsafe_allow_html=True)
             for i, place in enumerate(st.session_state['places']):
-                c1, c2, c3 = st.columns([0.5, 7, 0.7])
-                c1.markdown(f"<span style='color:#bbb; font-size:12px;'>{i+1}</span>", unsafe_allow_html=True)
-                c2.markdown(f"<span style='font-size:14px;'>{place['name']}</span>", unsafe_allow_html=True)
-                with c3:
-                    if st.button("🗑️", key=f"del_{i}"):
+                c_name, c_del = st.columns([9, 1])
+                c_name.markdown(
+                    f"<span style='color:#bbb; font-size:11px; margin-right:8px;'>{i+1}</span>"
+                    f"<span style='font-size:14px;'>{place['name']}</span>",
+                    unsafe_allow_html=True
+                )
+                with c_del:
+                    if st.button("🗑️", key=f"del_{i}", use_container_width=True):
                         st.session_state['places'].pop(i)
                         save_places(st.session_state['places'])
                         st.session_state['segment_times_cache'] = {}
@@ -819,35 +828,38 @@ with tab2:
     st.divider()
 
     if not st.session_state['itinerary'].empty:
-        sorted_df = st.session_state['itinerary'].sort_values(by=['날짜', '시작시간']).reset_index(drop=True)
+        # 원본 인덱스 보존 정렬 (삭제 시 정확한 행 drop)
+        sorted_itin = st.session_state['itinerary'].sort_values(by=['날짜', '시작시간'])
 
         st.subheader("📋 등록된 일정")
-        st.caption("행 왼쪽 체크박스 선택 후 Delete 키 또는 휴지통 아이콘으로 삭제할 수 있습니다.")
 
-        edited_df = st.data_editor(
-            sorted_df,
-            column_config={
-                "날짜":       st.column_config.TextColumn("📅 날짜",       width=110),
-                "시작시간":   st.column_config.TextColumn("▶ 시작",         width=75),
-                "종료시간":   st.column_config.TextColumn("⏹ 종료",         width=75),
-                "장소 및 활동": st.column_config.TextColumn("📍 장소 및 활동"),
-                "메모":       st.column_config.TextColumn("📝 메모"),
-            },
-            disabled=["날짜", "시작시간", "종료시간", "장소 및 활동", "메모"],
-            use_container_width=True,
-            num_rows="dynamic",
-            hide_index=True,
-            key="itinerary_editor",
-        )
+        # 헤더 행
+        _h = st.columns([1.6, 0.75, 0.75, 3.0, 2.6, 0.6])
+        for col, label in zip(_h, ["날짜", "시작", "종료", "장소 및 활동", "메모", ""]):
+            col.markdown(
+                f"<small style='color:#999; font-weight:600; letter-spacing:.03em;'>{label}</small>",
+                unsafe_allow_html=True
+            )
+        st.markdown("<hr style='margin:2px 0 4px 0; border-color:#ebebeb;'>", unsafe_allow_html=True)
 
-        # 행이 삭제된 경우 즉시 Firebase에 저장
-        if len(edited_df) < len(sorted_df):
-            st.session_state['itinerary'] = edited_df.reset_index(drop=True)
-            save_itinerary(st.session_state['itinerary'])
-            st.rerun()
+        # 데이터 행
+        for orig_idx, row in sorted_itin.iterrows():
+            c_date, c_start, c_end, c_act, c_memo, c_del = st.columns([1.6, 0.75, 0.75, 3.0, 2.6, 0.6])
+            c_date.markdown(f"<span style='font-size:13px;'>{row['날짜']}</span>",  unsafe_allow_html=True)
+            c_start.markdown(f"<span style='font-size:13px;'>{row['시작시간']}</span>", unsafe_allow_html=True)
+            c_end.markdown(f"<span style='font-size:13px;'>{row['종료시간']}</span>", unsafe_allow_html=True)
+            c_act.markdown(f"<span style='font-size:13px; font-weight:500;'>{row['장소 및 활동']}</span>", unsafe_allow_html=True)
+            c_memo.markdown(f"<span style='font-size:12px; color:#777;'>{row['메모'] if row['메모'] else ''}</span>", unsafe_allow_html=True)
+            with c_del:
+                if st.button("🗑️", key=f"del_itin_{orig_idx}", use_container_width=True):
+                    st.session_state['itinerary'] = (
+                        st.session_state['itinerary'].drop(orig_idx).reset_index(drop=True)
+                    )
+                    save_itinerary(st.session_state['itinerary'])
+                    st.rerun()
 
         st.divider()
-        csv = sorted_df.to_csv(index=False).encode('utf-8')
+        csv = sorted_itin.reset_index(drop=True).to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 엑셀/CSV로 일정 다운로드",
             data=csv,
