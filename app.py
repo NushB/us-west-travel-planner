@@ -183,7 +183,10 @@ with tab1:
                 components={"country": "us"}
             )
             if autocomplete_result:
-                st.session_state['search_candidates'] = autocomplete_result
+                # establishment 타입 우선 정렬 (geocode 타입은 Places Details API와 호환성 문제 발생 가능)
+                establishment_results = [r for r in autocomplete_result if 'establishment' in r.get('types', [])]
+                other_results = [r for r in autocomplete_result if 'establishment' not in r.get('types', [])]
+                st.session_state['search_candidates'] = establishment_results + other_results
                 st.session_state['preview_place'] = None
             else:
                 st.session_state['search_candidates'] = []
@@ -200,13 +203,18 @@ with tab1:
             )
             current_preview = st.session_state.get('preview_place')
             if current_preview is None or current_preview.get('place_id') != selected_candidate['place_id']:
-                place_detail = gmaps.place(
-                    selected_candidate['place_id'],
-                    fields=['name', 'geometry', 'formatted_address', 'rating',
-                            'user_ratings_total', 'opening_hours', 'website',
-                            'international_phone_number', 'photos'],
-                    language="ko"
-                )
+                try:
+                    place_detail = gmaps.place(
+                        selected_candidate['place_id'],
+                        fields=['name', 'geometry', 'formatted_address', 'rating',
+                                'user_ratings_total', 'opening_hours', 'website',
+                                'international_phone_number', 'photos'],
+                        language="ko"
+                    )
+                except ValueError as e:
+                    st.error(f"장소 상세 정보를 불러올 수 없습니다. 다른 결과를 선택해 보세요.")
+                    st.session_state['preview_place'] = None
+                    st.stop()
                 result = place_detail.get('result', {})
                 if result:
                     # 대표 사진 URL 추출
