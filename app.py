@@ -4,7 +4,7 @@ import folium
 from streamlit_folium import st_folium
 import googlemaps
 import polyline as polyline_decoder
-from datetime import datetime
+from datetime import datetime, date as date_type
 import re
 import os
 import firebase_admin
@@ -162,14 +162,12 @@ if 'segment_times_cache' not in st.session_state:
     st.session_state['segment_times_cache'] = {}
 if 'show_segment_times' not in st.session_state:
     st.session_state['show_segment_times'] = False
-if 'failed_place_ids' not in st.session_state:
-    st.session_state['failed_place_ids'] = set()
 
 st.title("🚙 우리들의 미국 서부 여행 플래너")
 
 # 사이드바
 with st.sidebar:
-    st.image(os.path.join(APP_DIR, "ezgif.com-reverse.gif"), use_container_width=True)
+    st.image(os.path.join(APP_DIR, "ezgif.com-reverse.gif"), width=90)
     st.header("메뉴")
     if st.button("🔓 로그아웃"):
         st.session_state["authenticated"] = False
@@ -201,7 +199,6 @@ with tab1:
                 other_results = [r for r in autocomplete_result if 'establishment' not in r.get('types', [])]
                 st.session_state['search_candidates'] = establishment_results + other_results
                 st.session_state['preview_place'] = None
-                st.session_state['failed_place_ids'] = set()
             else:
                 st.session_state['search_candidates'] = []
                 st.session_state['preview_place'] = None
@@ -218,12 +215,12 @@ with tab1:
             )
             place_id = selected_candidate['place_id']
             current_preview = st.session_state.get('preview_place')
-            failed_ids = st.session_state.get('failed_place_ids', set())
 
-            if place_id in failed_ids:
-                st.warning("⚠️ 이 장소는 상세 정보를 불러올 수 없습니다. 다른 검색 결과를 선택해 주세요.")
-            elif current_preview is None or current_preview.get('place_id') != place_id:
+            if current_preview is None or current_preview.get('place_id') != place_id:
                 place_detail = None
+                fetch_error = None
+
+                # 1차 시도: 전체 필드 요청
                 try:
                     place_detail = gmaps.place(
                         place_id,
@@ -233,17 +230,33 @@ with tab1:
                         language="ko"
                     )
                 except ValueError:
-                    st.warning("⚠️ 이 장소의 상세 정보를 불러올 수 없습니다. 다른 검색 결과를 선택해 주세요.")
-                    st.session_state['failed_place_ids'].add(place_id)
-                    st.session_state['preview_place'] = None
+                    # 2차 시도: 기본 필드만 (API 등급/billing 제한 대응)
+                    try:
+                        place_detail = gmaps.place(
+                            place_id,
+                            fields=['name', 'geometry', 'formatted_address'],
+                            language="ko"
+                        )
+                    except ValueError:
+                        fetch_error = "api_error"
+                    except Exception:
+                        fetch_error = "network_error"
                 except Exception:
+                    fetch_error = "network_error"
+
+                if fetch_error == "api_error":
+                    st.warning("⚠️ 이 장소의 정보를 불러올 수 없습니다. 다른 검색 결과를 선택해 주세요.")
+                    st.session_state['preview_place'] = None
+                elif fetch_error == "network_error":
                     st.warning("⚠️ 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
                     st.session_state['preview_place'] = None
-
-                if place_detail is not None:
+                elif place_detail is not None:
                     result = place_detail.get('result', {})
                     geometry = result.get('geometry', {}).get('location', {})
-                    if result and geometry.get('lat') and geometry.get('lng'):
+                    lat = geometry.get('lat')
+                    lng = geometry.get('lng')
+
+                    if result and lat and lng:
                         # 대표 사진 URL 추출
                         photo_url = None
                         photos = result.get('photos', [])
@@ -255,8 +268,8 @@ with tab1:
                         st.session_state['preview_place'] = {
                             'place_id': place_id,
                             'name': result.get('name', selected_label),
-                            'lat': geometry['lat'],
-                            'lng': geometry['lng'],
+                            'lat': lat,
+                            'lng': lng,
                             'address': result.get('formatted_address', ''),
                             'rating': result.get('rating'),
                             'user_ratings_total': result.get('user_ratings_total'),
@@ -265,9 +278,8 @@ with tab1:
                             'phone': result.get('international_phone_number', ''),
                             'photo_url': photo_url,
                         }
-                    elif place_detail is not None:
+                    else:
                         st.warning("⚠️ 이 장소의 위치 정보를 찾을 수 없습니다. 다른 검색 결과를 선택해 주세요.")
-                        st.session_state['failed_place_ids'].add(place_id)
                         st.session_state['preview_place'] = None
 
             # 상세 정보 표시
@@ -733,7 +745,7 @@ with tab2:
     with st.form("itinerary_form"):
         col_date, col_start, col_end = st.columns(3)
         with col_date:
-            date = st.date_input("날짜")
+            date = st.date_input("날짜", value=date_type(2026, 5, 1))
         with col_start:
             start_time = st.time_input("시작 시간")
         with col_end:
@@ -755,16 +767,37 @@ with tab2:
             st.session_state['itinerary'] = pd.concat([st.session_state['itinerary'], new_row], ignore_index=True)
             save_itinerary(st.session_state['itinerary'])
             st.success("일정이 추가되었습니다!")
+        elif submitted and not activity:
+            st.warning("장소 및 활동을 입력해 주세요.")
 
     st.divider()
 
     if not st.session_state['itinerary'].empty:
         sorted_itinerary = st.session_state['itinerary'].sort_values(by=['날짜', '시작시간']).reset_index(drop=True)
-        st.dataframe(sorted_itinerary, use_container_width=True)
 
+        st.subheader("📋 등록된 일정")
+        st.dataframe(sorted_itinerary, use_container_width=True, hide_index=False)
+
+        # 일정 삭제
+        st.markdown("#### 🗑️ 일정 삭제")
+        delete_options = [
+            f"{i+1}. {row['날짜']}  {row['시작시간']}~{row['종료시간']}  {row['장소 및 활동']}"
+            for i, row in sorted_itinerary.iterrows()
+        ]
+        selected_to_delete = st.selectbox("삭제할 일정을 선택하세요", delete_options, label_visibility="collapsed")
+        if st.button("🗑️ 선택한 일정 삭제", type="secondary"):
+            del_idx = delete_options.index(selected_to_delete)
+            # sorted_itinerary의 행 번호로 원본 DataFrame에서 삭제
+            original_idx = sorted_itinerary.index[del_idx]
+            st.session_state['itinerary'] = st.session_state['itinerary'].drop(original_idx).reset_index(drop=True)
+            save_itinerary(st.session_state['itinerary'])
+            st.success("일정이 삭제되었습니다!")
+            st.rerun()
+
+        st.divider()
         csv = sorted_itinerary.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="엑셀/CSV로 일정 다운로드",
+            label="📥 엑셀/CSV로 일정 다운로드",
             data=csv,
             file_name='us_west_trip_itinerary.csv',
             mime='text/csv',
