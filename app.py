@@ -197,7 +197,7 @@ def get_segment_times(places):
         a = places[i]
         b = places[i + 1]
         try:
-            _now = datetime.now()
+            _now = datetime.utcnow()
             dirs = gmaps.directions(
                 (a['lat'], a['lng']),
                 (b['lat'], b['lng']),
