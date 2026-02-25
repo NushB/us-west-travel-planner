@@ -197,24 +197,29 @@ def get_segment_times(places):
         a = places[i]
         b = places[i + 1]
         try:
+            _now = datetime.now()
             dirs = gmaps.directions(
                 (a['lat'], a['lng']),
                 (b['lat'], b['lng']),
                 mode="driving",
-                language="ko"
+                language="ko",
+                departure_time=_now,
             )
             if not dirs:
                 dirs = gmaps.directions(
                     a['address'], b['address'],
                     mode="driving",
-                    language="ko"
+                    language="ko",
+                    departure_time=_now,
                 )
             if dirs:
                 leg = dirs[0]['legs'][0]
+                # duration_in_traffic: 실시간 교통 반영 / 없으면 기본값 사용
+                duration_text = leg.get('duration_in_traffic', leg['duration'])['text']
                 times.append({
                     'from': a['name'],
                     'to': b['name'],
-                    'duration': leg['duration']['text'],
+                    'duration': duration_text,
                     'distance': leg['distance']['text'],
                     'polyline': dirs[0]['overview_polyline']['points'],
                     'mid_lat': (a['lat'] + b['lat']) / 2,
@@ -650,25 +655,29 @@ with tab1:
                     start_place = next(p for p in st.session_state['places'] if p['name'] == start_point)
                     end_place = next(p for p in st.session_state['places'] if p['name'] == end_point)
 
+                    _now = datetime.now()
                     directions = gmaps.directions(
                         (start_place['lat'], start_place['lng']),
                         (end_place['lat'], end_place['lng']),
                         mode="driving",
-                        language="ko"
+                        language="ko",
+                        departure_time=_now,
                     )
                     if not directions:
                         directions = gmaps.directions(
                             start_place['address'],
                             end_place['address'],
                             mode="driving",
-                            language="ko"
+                            language="ko",
+                            departure_time=_now,
                         )
                     if directions:
                         leg = directions[0]['legs'][0]
+                        duration_text = leg.get('duration_in_traffic', leg['duration'])['text']
                         st.session_state['route_result'] = {
                             'start': start_point,
                             'end': end_point,
-                            'duration': leg['duration']['text'],
+                            'duration': duration_text,
                             'distance': leg['distance']['text'],
                         }
                         st.session_state['route_polyline'] = directions[0]['overview_polyline']['points']
