@@ -430,7 +430,10 @@ with tab1:
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        st.subheader("📍 관광지 검색 및 추가")
+        st.markdown(
+            '<h3 style="margin:0 0 0.75rem 0; padding:0; font-size:1.25rem; font-weight:700; line-height:1.4;">📍 관광지 검색 및 추가</h3>',
+            unsafe_allow_html=True
+        )
         search_query = st.text_input("관광지 이름을 영어 또는 한글로 입력하세요 (예: Grand Canyon, Las Vegas)")
 
         if st.button("🔍 검색") and search_query:
