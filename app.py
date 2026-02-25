@@ -427,14 +427,10 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 ])
 
 with tab1:
-    # ── 헤더 행: 두 제목이 동일 높이에 정렬되도록 컬럼 바깥에서 선언 ──
-    _th1, _th2 = st.columns([1, 2])
-    _th1.subheader("📍 관광지 검색 및 추가")
-    _th2.subheader("🗺️ 지도")
-
     col1, col2 = st.columns([1, 2])
 
     with col1:
+        st.subheader("📍 관광지 검색 및 추가")
         search_query = st.text_input("관광지 이름을 영어 또는 한글로 입력하세요 (예: Grand Canyon, Las Vegas)")
 
         if st.button("🔍 검색") and search_query:
