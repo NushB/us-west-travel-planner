@@ -306,38 +306,57 @@ st.title("🚙 우리들의 미국 서부 여행 플래너")
 # 전역 CSS: 행 hover 하이라이트 & 마지막 컬럼 삭제 버튼 hover-reveal
 st.markdown("""
 <style>
-/* 행에 패딩 추가 → 텍스트가 배경에 붙지 않게 */
+/* ─── 행 공통: 패딩 & hover 배경 ─── */
 div[data-testid="stHorizontalBlock"] {
-    padding: 4px 10px;
-    border-radius: 8px;
+    padding: 3px 10px;
+    border-radius: 6px;
     align-items: center;
 }
 div[data-testid="stHorizontalBlock"]:hover {
-    background: rgba(0,0,0,0.03);
+    background: rgba(0,0,0,0.025);
 }
-/* 마지막 컬럼 삭제 버튼: 기본 숨김 */
+
+/* ─── 마지막 컬럼 내부 래퍼/버튼 배경 완전 제거 ─── */
+div[data-testid="stHorizontalBlock"]
+  > div[data-testid="stColumn"]:last-of-type
+  div[data-testid="stButton"],
+div[data-testid="stHorizontalBlock"]
+  > div[data-testid="stColumn"]:last-of-type
+  div[data-testid="stBaseButton-borderless"] {
+    background: transparent !important;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+div[data-testid="stHorizontalBlock"]
+  > div[data-testid="stColumn"]:last-of-type
+  button {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* ─── 삭제 버튼: 기본 숨김, 아이콘만 ─── */
 div[data-testid="stHorizontalBlock"]
   > div[data-testid="stColumn"]:last-of-type
   button[data-testid="baseButton-secondary"] {
     opacity: 0;
-    transition: opacity 0.15s ease, background-color 0.15s ease;
-    background-color: transparent !important;
-    border: 1px solid transparent !important;
+    transition: opacity 0.15s ease;
     color: #ef4444;
-    padding: 2px 8px;
-    height: 30px;
-    min-height: unset;
-    font-size: 14px;
+    padding: 2px 6px !important;
+    font-size: 15px;
     line-height: 1;
+    min-height: unset !important;
+    height: auto !important;
+    width: auto !important;
 }
-/* hover 시 버튼 표시 */
+
+/* ─── 행 hover 시 삭제 버튼 표시 ─── */
 div[data-testid="stHorizontalBlock"]:hover
   > div[data-testid="stColumn"]:last-of-type
   button[data-testid="baseButton-secondary"] {
     opacity: 1;
-    background-color: #fee2e2 !important;
-    border: 1px solid #fca5a5 !important;
-    border-radius: 6px !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -408,10 +427,14 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 ])
 
 with tab1:
+    # ── 헤더 행: 두 제목이 동일 높이에 정렬되도록 컬럼 바깥에서 선언 ──
+    _th1, _th2 = st.columns([1, 2])
+    _th1.subheader("📍 관광지 검색 및 추가")
+    _th2.subheader("🗺️ 지도")
+
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        st.subheader("📍 관광지 검색 및 추가")
         search_query = st.text_input("관광지 이름을 영어 또는 한글로 입력하세요 (예: Grand Canyon, Las Vegas)")
 
         if st.button("🔍 검색") and search_query:
@@ -567,20 +590,25 @@ with tab1:
         if st.session_state['places']:
             st.divider()
             st.subheader("📋 추가된 장소 목록")
-            st.markdown("<hr style='margin:4px 0 6px 0; border-color:#f0f0f0;'>", unsafe_allow_html=True)
+            # 헤더 행
+            _ph1, _ph2 = st.columns([9, 1])
+            _ph1.markdown("<small style='color:#aaa;font-weight:600;letter-spacing:.04em;'>장소명</small>", unsafe_allow_html=True)
+            st.markdown("<div style='height:1px;background:#e5e7eb;margin:2px 0 4px 0;'></div>", unsafe_allow_html=True)
             for i, place in enumerate(st.session_state['places']):
                 c_name, c_del = st.columns([9, 1], vertical_alignment="center")
                 c_name.markdown(
-                    f"<span style='color:#bbb; font-size:11px; margin-right:8px;'>{i+1}</span>"
-                    f"<span style='font-size:14px;'>{place['name']}</span>",
+                    f"<span style='color:#c0c0c0;font-size:11px;font-weight:700;margin-right:10px;'>{i+1}</span>"
+                    f"<span style='font-size:14px;font-weight:500;'>{place['name']}</span>",
                     unsafe_allow_html=True
                 )
                 with c_del:
-                    if st.button("🗑️", key=f"del_{i}", use_container_width=True, help="삭제"):
+                    if st.button("🗑️", key=f"del_{i}"):
                         st.session_state['places'].pop(i)
                         save_places(st.session_state['places'])
                         st.session_state['segment_times_cache'] = {}
                         st.rerun()
+                # 아이템 간 구분선
+                st.markdown("<div style='height:1px;background:#f3f4f6;margin:0 10px;'></div>", unsafe_allow_html=True)
 
         # 이동 시간 계산기
         st.divider()
@@ -651,7 +679,6 @@ with tab1:
                 st.rerun()
 
     with col2:
-        st.subheader("🗺️ 지도")
         preview = st.session_state.get('preview_place')
         if preview:
             map_center = [preview['lat'], preview['lng']]
