@@ -286,6 +286,8 @@ if 'segment_times_cache' not in st.session_state:
     st.session_state['segment_times_cache'] = {}
 if 'show_segment_times' not in st.session_state:
     st.session_state['show_segment_times'] = False
+if 'map_center_place' not in st.session_state:
+    st.session_state['map_center_place'] = None
 if 'flights' not in st.session_state:
     st.session_state['flights'] = load_flights()
 if 'hotels' not in st.session_state:
@@ -316,7 +318,7 @@ div[data-testid="stHorizontalBlock"]:hover {
     background: rgba(0,0,0,0.025);
 }
 
-/* ─── 마지막 컬럼 내부 래퍼/버튼 배경 완전 제거 ─── */
+/* ─── 마지막 컬럼 내부 래퍼/버튼 배경 완전 제거 (primary 버튼 제외) ─── */
 div[data-testid="stHorizontalBlock"]
   > div[data-testid="stColumn"]:last-of-type
   div[data-testid="stButton"],
@@ -330,11 +332,35 @@ div[data-testid="stHorizontalBlock"]
 }
 div[data-testid="stHorizontalBlock"]
   > div[data-testid="stColumn"]:last-of-type
-  button {
+  button:not([data-testid="baseButton-primary"]) {
     background: transparent !important;
     background-color: transparent !important;
     border: none !important;
     box-shadow: none !important;
+}
+
+/* ─── 장소 목록 이름 버튼: 텍스트처럼 표시 (has selector) ─── */
+div[data-testid="stHorizontalBlock"]:has(
+  > div[data-testid="stColumn"]:last-of-type button[data-testid="baseButton-secondary"]
+) > div[data-testid="stColumn"]:first-of-type button[data-testid="baseButton-secondary"] {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+    padding: 0 4px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    color: #31333F !important;
+    min-height: 28px !important;
+    height: auto !important;
+    line-height: 1.4 !important;
+    width: 100% !important;
+}
+div[data-testid="stHorizontalBlock"]:has(
+  > div[data-testid="stColumn"]:last-of-type button[data-testid="baseButton-secondary"]
+):hover > div[data-testid="stColumn"]:first-of-type button[data-testid="baseButton-secondary"] {
+    color: #667eea !important;
 }
 
 /* ─── 삭제 버튼: 기본 숨김, 아이콘만 ─── */
@@ -595,16 +621,18 @@ with tab1:
             st.markdown("<div style='height:1px;background:#e5e7eb;margin:2px 0 4px 0;'></div>", unsafe_allow_html=True)
             for i, place in enumerate(st.session_state['places']):
                 c_name, c_del = st.columns([9, 1], vertical_alignment="center")
-                c_name.markdown(
-                    f"<span style='color:#c0c0c0;font-size:11px;font-weight:700;margin-right:10px;'>{i+1}</span>"
-                    f"<span style='font-size:14px;font-weight:500;'>{place['name']}</span>",
-                    unsafe_allow_html=True
-                )
+                with c_name:
+                    btn_label = f"{i+1}.  {place['name']}"
+                    if st.button(btn_label, key=f"focus_{i}", use_container_width=True,
+                                 help="클릭하여 지도에서 이 장소로 이동"):
+                        st.session_state['map_center_place'] = place
+                        st.rerun()
                 with c_del:
                     if st.button("🗑️", key=f"del_{i}"):
                         st.session_state['places'].pop(i)
                         save_places(st.session_state['places'])
                         st.session_state['segment_times_cache'] = {}
+                        st.session_state['map_center_place'] = None
                         st.rerun()
                 # 아이템 간 구분선
                 st.markdown("<div style='height:1px;background:#f3f4f6;margin:0 10px;'></div>", unsafe_allow_html=True)
@@ -646,6 +674,7 @@ with tab1:
                         st.session_state['route_polyline'] = directions[0]['overview_polyline']['points']
                         st.session_state['route_start'] = start_place
                         st.session_state['route_end'] = end_place
+                        st.session_state['map_center_place'] = None
                         st.rerun()
                     else:
                         st.error("두 지점 간의 경로를 찾을 수 없습니다.")
@@ -681,6 +710,10 @@ with tab1:
         preview = st.session_state.get('preview_place')
         if preview:
             map_center = [preview['lat'], preview['lng']]
+            map_zoom = 14
+        elif st.session_state.get('map_center_place'):
+            mc = st.session_state['map_center_place']
+            map_center = [mc['lat'], mc['lng']]
             map_zoom = 14
         elif st.session_state.get('route_start'):
             rs = st.session_state['route_start']
