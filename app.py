@@ -1301,23 +1301,25 @@ render(Y,M);
     components.html(_CAL_HTML, height=640)
 
     # ── 2. 표로 보기 (접었다 펼쳤다) ────────────────────────────────────
+    # 헤더·데이터 행 모두 동일 비율 사용 → 컬럼 정렬 보장
+    _COL_W = [2.0, 1.3, 3.5, 3.0, 0.55]
+
     with st.expander("📋 표로 보기", expanded=False):
         if not df_itin.empty:
             sorted_itin = df_itin.sort_values(by=['날짜', '시작시간'])
 
-            # 헤더
-            _th = st.columns([1.8, 1.0, 3.5, 3.0, 0.5])
-            for _tc, _tl in zip(_th, ["날짜 / 기간", "시간", "장소 및 활동", "메모", ""]):
-                _tc.markdown(
+            # 헤더 행 (데이터와 동일 비율)
+            _hcols = st.columns(_COL_W)
+            for _hc, _hl in zip(_hcols, ["날짜 / 기간", "시간", "장소 및 활동", "메모", ""]):
+                _hc.markdown(
                     f"<div style='background:#667eea;color:white;font-size:11px;"
-                    f"font-weight:700;padding:5px 8px;border-radius:4px;text-align:center;'>"
-                    f"{_tl}</div>",
+                    f"font-weight:700;padding:6px 4px;border-radius:4px;text-align:center;'>"
+                    f"{_hl}</div>",
                     unsafe_allow_html=True,
                 )
-            st.markdown("<div style='height:3px;'></div>", unsafe_allow_html=True)
 
             _prev_date = None
-            for _row_n, (_oi, _row) in enumerate(sorted_itin.iterrows()):
+            for _oi, _row in sorted_itin.iterrows():
                 _rd = _row['날짜']
                 _ed2 = ''
                 if _has_end:
@@ -1326,26 +1328,31 @@ render(Y,M);
                 _date_lbl = _rd if (not _ed2 or _ed2 == _rd) else f"{_rd}~{_ed2}"
                 _new_date = (_rd != _prev_date)
                 _prev_date = _rd
-                _bg = "#f4f6ff" if _new_date else "#ffffff"
-                _border_top = "border-top:2px solid #c7d2fe;" if _new_date else "border-top:1px solid #f3f4f6;"
+                _bg  = "#f4f6ff" if _new_date else "#ffffff"
+                _bdr = "border-top:2px solid #c7d2fe;" if _new_date else "border-top:1px solid #f0f0f0;"
+                _cs  = f"padding:7px 4px;background:{_bg};{_bdr}font-size:12px;min-height:34px;"
 
-                _ci, _cd = st.columns([11, 1])
-                with _ci:
-                    _date_style = "font-weight:700;color:#667eea;" if _new_date else "color:#999;"
-                    st.markdown(
-                        f"<div style='display:flex;align-items:center;padding:6px 8px;"
-                        f"{_border_top}background:{_bg};border-radius:4px;'>"
-                        f"<div style='flex:1.8;font-size:12px;{_date_style}'>{_date_lbl}</div>"
-                        f"<div style='flex:1.0;font-size:12px;color:#555;white-space:nowrap;'>"
-                        f"{_row['시작시간']}~{_row['종료시간']}</div>"
-                        f"<div style='flex:3.5;font-size:13px;font-weight:500;color:#1a1a1a;"
-                        f"padding-right:8px;'>{_row['장소 및 활동']}</div>"
-                        f"<div style='flex:3.0;font-size:12px;color:#888;'>"
-                        f"{_row.get('메모','') or ''}</div>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                with _cd:
+                _dcols = st.columns(_COL_W)
+                _date_fw = "font-weight:700;color:#667eea;" if _new_date else "color:#999;"
+                _dcols[0].markdown(
+                    f"<div style='{_cs}{_date_fw}'>{_date_lbl}</div>",
+                    unsafe_allow_html=True,
+                )
+                _dcols[1].markdown(
+                    f"<div style='{_cs}color:#555;white-space:nowrap;'>"
+                    f"{_row['시작시간']}~{_row['종료시간']}</div>",
+                    unsafe_allow_html=True,
+                )
+                _dcols[2].markdown(
+                    f"<div style='{_cs}font-size:13px;font-weight:500;color:#1a1a1a;'>"
+                    f"{_row['장소 및 활동']}</div>",
+                    unsafe_allow_html=True,
+                )
+                _dcols[3].markdown(
+                    f"<div style='{_cs}color:#888;'>{_row.get('메모','') or ''}</div>",
+                    unsafe_allow_html=True,
+                )
+                with _dcols[4]:
                     if st.button("🗑️", key=f"del_itin_{_oi}", use_container_width=True):
                         st.session_state['itinerary'] = (
                             st.session_state['itinerary'].drop(_oi).reset_index(drop=True)
@@ -1368,6 +1375,11 @@ render(Y,M);
 
     # ── 3. 세부 일정 추가 폼 ──────────────────────────────────────────
     st.subheader("➕ 일정 추가")
+
+    # rerun 이후 완료 메시지 표시 (플래그 읽고 즉시 소거)
+    if st.session_state.pop('itin_success', False):
+        st.success("✅ 일정이 추가되었습니다!")
+
     with st.form("itinerary_form"):
         _fc1, _fc2 = st.columns(2)
         with _fc1:
@@ -1402,7 +1414,7 @@ render(Y,M);
                 _cur_df['종료날짜'] = ''
             st.session_state['itinerary'] = pd.concat([_cur_df, _new_row], ignore_index=True)
             save_itinerary(st.session_state['itinerary'])
-            st.success("✅ 일정이 추가되었습니다!")
+            st.session_state['itin_success'] = True   # 완료 플래그 세팅
             st.rerun()
         elif _submitted and not _activity:
             st.warning("장소 및 활동을 입력해 주세요.")
