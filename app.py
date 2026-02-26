@@ -9,6 +9,7 @@ from datetime import datetime, date as date_type
 import re
 import os
 import base64
+import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -71,11 +72,11 @@ def load_itinerary():
             # 이전 데이터 호환성: '시간' 컬럼이 있으면 '시작시간'으로 변환
             if '시간' in df.columns and '시작시간' not in df.columns:
                 df = df.rename(columns={'시간': '시작시간'})
-            for col in ['날짜', '시작시간', '종료시간', '장소 및 활동', '메모']:
+            for col in ['날짜', '종료날짜', '시작시간', '종료시간', '장소 및 활동', '메모']:
                 if col not in df.columns:
                     df[col] = ''
-            return df[['날짜', '시작시간', '종료시간', '장소 및 활동', '메모']]
-    return pd.DataFrame(columns=['날짜', '시작시간', '종료시간', '장소 및 활동', '메모'])
+            return df[['날짜', '종료날짜', '시작시간', '종료시간', '장소 및 활동', '메모']]
+    return pd.DataFrame(columns=['날짜', '종료날짜', '시작시간', '종료시간', '장소 및 활동', '메모'])
 
 def save_itinerary(df):
     db.collection("travel_data").document("itinerary").set({"list": df.to_dict(orient="records")})
@@ -557,8 +558,8 @@ with st.sidebar:
 
 # 탭 구성
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "🗺️ 지도 및 경로",
     "📅 일정 관리",
+    "🗺️ 지도 및 경로",
     "✈️ 항공/교통",
     "🏨 숙소 관리",
     "💰 예산 관리",
@@ -566,7 +567,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "🍽️ 맛집 리스트",
 ])
 
-with tab1:
+with tab2:
     col1, col2 = st.columns([1, 2])
 
     with col1:
@@ -1152,80 +1153,259 @@ with tab1:
             if rows:
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-with tab2:
+with tab1:
     st.header("📅 세부 일정 관리")
 
-    with st.form("itinerary_form"):
-        col_date, col_start, col_end = st.columns(3)
-        with col_date:
-            date = st.date_input("날짜", value=date_type(2026, 5, 1))
-        with col_start:
-            start_time = st.time_input("시작 시간")
-        with col_end:
-            end_time = st.time_input("종료 시간")
+    df_itin = st.session_state['itinerary']
 
-        activity = st.text_input("장소 및 활동")
-        memo = st.text_area("메모 (준비물, 예약 번호 등)")
+    # ── 1. 인터랙티브 달력 뷰 ─────────────────────────────────────────
+    _has_end = '종료날짜' in df_itin.columns
+    _ev_list = []
+    for _ei, _er in df_itin.iterrows():
+        _end_d = ''
+        if _has_end:
+            _v = _er['종료날짜']
+            _end_d = str(_v) if (pd.notna(_v) and str(_v).strip() not in ('', 'nan')) else ''
+        _ev_list.append({
+            'idx': int(_ei),
+            'start_date': str(_er['날짜']),
+            'end_date': _end_d if _end_d else str(_er['날짜']),
+            'start_time': str(_er['시작시간']),
+            'end_time': str(_er['종료시간']),
+            'activity': str(_er['장소 및 활동']),
+            'memo': str(_er.get('메모', '') or ''),
+        })
+    _ev_json = json.dumps(_ev_list, ensure_ascii=False)
 
-        submitted = st.form_submit_button("일정 추가하기")
+    _CAL_HTML = r"""<!DOCTYPE html>
+<html><head><style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:transparent;padding:6px 2px 4px 2px;overflow-y:auto;}
+.nav-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:0 2px;}
+.nav-btn{background:white;border:1px solid #ddd;border-radius:8px;padding:5px 14px;cursor:pointer;font-size:13px;color:#555;transition:all .15s;}
+.nav-btn:hover{background:#f0f4ff;border-color:#667eea;color:#667eea;}
+.month-title{font-size:18px;font-weight:800;color:#1a1a2e;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+.wday{text-align:center;font-size:11px;font-weight:700;color:#bbb;padding:3px 0 6px 0;}
+.wday.sun{color:#e53e3e;}.wday.sat{color:#3182ce;}
+.dc{min-height:78px;background:white;border:1px solid #f0f0f0;border-radius:7px;padding:4px 2px 2px 2px;overflow:hidden;}
+.dc.empty{background:transparent;border-color:transparent;}
+.dn{font-size:11px;font-weight:700;color:#444;padding:0 4px 2px 0;line-height:1.2;text-align:right;}
+.dn.sun{color:#e53e3e;}.dn.sat{color:#3182ce;}
+.eb{font-size:9.5px;padding:2px 4px;margin-bottom:2px;cursor:pointer;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.6;font-weight:500;transition:filter .15s;}
+.eb:hover{filter:brightness(.85);}
+.eb.single{border-radius:4px;}
+.eb.estart{border-radius:4px 0 0 4px;margin-right:-3px;}
+.eb.emiddle{border-radius:0;margin:0 -3px 2px -3px;padding:2px 1px;}
+.eb.eend{border-radius:0 4px 4px 0;margin-left:-3px;padding:2px 1px;}
+.tt{display:none;position:fixed;z-index:9999;background:white;border:1px solid #e0e0e0;border-radius:12px;padding:14px 16px 12px 16px;max-width:280px;box-shadow:0 8px 28px rgba(0,0,0,.15);pointer-events:auto;}
+.tt.vis{display:block;}
+.tt-x{position:absolute;top:10px;right:12px;cursor:pointer;color:#ccc;font-size:14px;}
+.tt-x:hover{color:#555;}
+.tt-badge{display:inline-block;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-bottom:8px;}
+.tt-title{font-size:14px;font-weight:700;color:#1a1a1a;margin-bottom:5px;line-height:1.4;padding-right:18px;}
+.tt-time{font-size:12px;color:#666;}
+.tt-date-range{font-size:11px;color:#888;margin-top:3px;}
+.tt-memo{font-size:12px;color:#777;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;line-height:1.5;}
+</style></head>
+<body>
+<div id="ev-data" style="display:none">__EV_JSON__</div>
+<div class="nav-row">
+  <button class="nav-btn" id="prev">◀</button>
+  <div class="month-title" id="mtitle"></div>
+  <button class="nav-btn" id="next">▶</button>
+</div>
+<div class="cal-grid" id="cg">
+  <div class="wday sun">일</div><div class="wday">월</div><div class="wday">화</div>
+  <div class="wday">수</div><div class="wday">목</div><div class="wday">금</div>
+  <div class="wday sat">토</div>
+</div>
+<div class="tt" id="tt"><span class="tt-x" id="ttx">✕</span><div id="ttb"></div></div>
+<script>
+const EV=JSON.parse(document.getElementById('ev-data').textContent);
+const CLR=['#667eea','#f5576c','#43e97b','#fa709a','#4facfe','#30cfd0','#fd7442','#9f7aea','#f093fb','#f6d365','#a29bfe','#fd79a8'];
+const MK=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+let Y=2026,M=4;
+function pd(n){return String(n).padStart(2,'0');}
+function pk(s){const[a,b,c]=s.split('-').map(Number);return new Date(a,b-1,c);}
+function render(y,m){
+  document.getElementById('mtitle').textContent=y+'년 '+MK[m];
+  const g=document.getElementById('cg');
+  g.querySelectorAll('.dc').forEach(c=>c.remove());
+  const fw=new Date(y,m,1).getDay();
+  const dm=new Date(y,m+1,0).getDate();
+  const now=new Date();
+  const isT=(d)=>now.getFullYear()===y&&now.getMonth()===m&&now.getDate()===d;
+  const dem={};
+  EV.forEach((ev,gi)=>{
+    const sd=pk(ev.start_date),ed=pk(ev.end_date);
+    let cur=new Date(sd);
+    while(cur<=ed){
+      if(cur.getFullYear()===y&&cur.getMonth()===m){
+        const d=cur.getDate();
+        if(!dem[d])dem[d]=[];
+        const iS=+cur===+sd,iE=+cur===+ed;
+        dem[d].push({ev,gi,span:iS&&iE?'single':iS?'estart':iE?'eend':'emiddle'});
+      }
+      cur.setDate(cur.getDate()+1);
+    }
+  });
+  for(let i=0;i<fw;i++){const e=document.createElement('div');e.className='dc empty';g.appendChild(e);}
+  for(let d=1;d<=dm;d++){
+    const cell=document.createElement('div');cell.className='dc';
+    const wd=(fw+d-1)%7;
+    const dnCls='dn'+(wd===0?' sun':wd===6?' sat':'');
+    const dnInner=isT(d)?`<span style="background:#667eea;color:white;border-radius:50%;width:18px;height:18px;line-height:18px;display:inline-block;text-align:center;font-size:10px;">${d}</span>`:d;
+    cell.innerHTML=`<div class="${dnCls}" style="text-align:right;padding:0 4px 2px 0;">${dnInner}</div>`;
+    (dem[d]||[]).forEach(({ev,gi,span})=>{
+      const c=CLR[gi%CLR.length];
+      const bar=document.createElement('div');
+      bar.className='eb '+span;
+      bar.style.background=c;
+      if(span==='single'||span==='estart'){bar.textContent=ev.start_time+' '+ev.activity;}
+      else{bar.innerHTML='&nbsp;';}
+      bar.onclick=(e)=>{e.stopPropagation();showTT(e,ev,c);};
+      cell.appendChild(bar);
+    });
+    g.appendChild(cell);
+  }
+}
+let htimer;
+function safe(s){return s.replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function showTT(e,ev,c){
+  clearTimeout(htimer);
+  const tt=document.getElementById('tt');
+  const ds=ev.start_date===ev.end_date?ev.start_date:ev.start_date+' ~ '+ev.end_date;
+  document.getElementById('ttb').innerHTML=
+    `<div><span class="tt-badge" style="background:${c}">${ds}</span></div>`+
+    `<div class="tt-title">${safe(ev.activity)}</div>`+
+    `<div class="tt-time">⏰ ${ev.start_time} ~ ${ev.end_time}</div>`+
+    (ev.memo?`<div class="tt-memo">📝 ${safe(ev.memo)}</div>`:'');
+  const r=e.target.getBoundingClientRect();
+  let l=r.left,t=r.bottom+5;
+  if(l+285>window.innerWidth)l=window.innerWidth-290;
+  if(l<2)l=2;
+  if(t+160>window.innerHeight)t=r.top-165;
+  tt.style.left=l+'px';tt.style.top=t+'px';
+  tt.classList.add('vis');
+}
+document.getElementById('ttx').onclick=()=>document.getElementById('tt').classList.remove('vis');
+document.addEventListener('click',e=>{if(!e.target.closest('#tt')&&!e.target.closest('.eb'))document.getElementById('tt').classList.remove('vis');});
+document.getElementById('prev').onclick=()=>{M--;if(M<0){M=11;Y--;}render(Y,M);};
+document.getElementById('next').onclick=()=>{M++;if(M>11){M=0;Y++;}render(Y,M);};
+if(EV.length>0){const e0=EV.reduce((a,b)=>a.start_date<b.start_date?a:b);const[ey,em]=e0.start_date.split('-').map(Number);Y=ey;M=em-1;}
+render(Y,M);
+</script>
+</body></html>"""
+    _CAL_HTML = _CAL_HTML.replace('__EV_JSON__', _ev_json)
+    components.html(_CAL_HTML, height=640)
 
-        if submitted and activity:
-            new_row = pd.DataFrame({
-                '날짜': [str(date)],
-                '시작시간': [start_time.strftime("%H:%M")],
-                '종료시간': [end_time.strftime("%H:%M")],
-                '장소 및 활동': [activity],
-                '메모': [memo]
-            })
-            st.session_state['itinerary'] = pd.concat([st.session_state['itinerary'], new_row], ignore_index=True)
-            save_itinerary(st.session_state['itinerary'])
-            st.success("일정이 추가되었습니다!")
-        elif submitted and not activity:
-            st.warning("장소 및 활동을 입력해 주세요.")
+    # ── 2. 표로 보기 (접었다 펼쳤다) ────────────────────────────────────
+    with st.expander("📋 표로 보기", expanded=False):
+        if not df_itin.empty:
+            sorted_itin = df_itin.sort_values(by=['날짜', '시작시간'])
+
+            # 헤더
+            _th = st.columns([1.8, 1.0, 3.5, 3.0, 0.5])
+            for _tc, _tl in zip(_th, ["날짜 / 기간", "시간", "장소 및 활동", "메모", ""]):
+                _tc.markdown(
+                    f"<div style='background:#667eea;color:white;font-size:11px;"
+                    f"font-weight:700;padding:5px 8px;border-radius:4px;text-align:center;'>"
+                    f"{_tl}</div>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown("<div style='height:3px;'></div>", unsafe_allow_html=True)
+
+            _prev_date = None
+            for _row_n, (_oi, _row) in enumerate(sorted_itin.iterrows()):
+                _rd = _row['날짜']
+                _ed2 = ''
+                if _has_end:
+                    _vv = _row['종료날짜']
+                    _ed2 = str(_vv) if (pd.notna(_vv) and str(_vv).strip() not in ('', 'nan')) else ''
+                _date_lbl = _rd if (not _ed2 or _ed2 == _rd) else f"{_rd}~{_ed2}"
+                _new_date = (_rd != _prev_date)
+                _prev_date = _rd
+                _bg = "#f4f6ff" if _new_date else "#ffffff"
+                _border_top = "border-top:2px solid #c7d2fe;" if _new_date else "border-top:1px solid #f3f4f6;"
+
+                _ci, _cd = st.columns([11, 1])
+                with _ci:
+                    _date_style = "font-weight:700;color:#667eea;" if _new_date else "color:#999;"
+                    st.markdown(
+                        f"<div style='display:flex;align-items:center;padding:6px 8px;"
+                        f"{_border_top}background:{_bg};border-radius:4px;'>"
+                        f"<div style='flex:1.8;font-size:12px;{_date_style}'>{_date_lbl}</div>"
+                        f"<div style='flex:1.0;font-size:12px;color:#555;white-space:nowrap;'>"
+                        f"{_row['시작시간']}~{_row['종료시간']}</div>"
+                        f"<div style='flex:3.5;font-size:13px;font-weight:500;color:#1a1a1a;"
+                        f"padding-right:8px;'>{_row['장소 및 활동']}</div>"
+                        f"<div style='flex:3.0;font-size:12px;color:#888;'>"
+                        f"{_row.get('메모','') or ''}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                with _cd:
+                    if st.button("🗑️", key=f"del_itin_{_oi}", use_container_width=True):
+                        st.session_state['itinerary'] = (
+                            st.session_state['itinerary'].drop(_oi).reset_index(drop=True)
+                        )
+                        save_itinerary(st.session_state['itinerary'])
+                        st.rerun()
+
+            st.divider()
+            _csv = sorted_itin.reset_index(drop=True).to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 CSV로 일정 다운로드",
+                data=_csv,
+                file_name='us_west_trip_itinerary.csv',
+                mime='text/csv',
+            )
+        else:
+            st.info("아직 추가된 일정이 없습니다.")
 
     st.divider()
 
-    if not st.session_state['itinerary'].empty:
-        # 원본 인덱스 보존 정렬 (삭제 시 정확한 행 drop)
-        sorted_itin = st.session_state['itinerary'].sort_values(by=['날짜', '시작시간'])
-
-        st.subheader("📋 등록된 일정")
-
-        # 헤더 행
-        _h = st.columns([1.6, 0.75, 0.75, 3.0, 2.6, 0.6])
-        for col, label in zip(_h, ["날짜", "시작", "종료", "장소 및 활동", "메모", ""]):
-            col.markdown(
-                f"<small style='color:#999; font-weight:600; letter-spacing:.03em;'>{label}</small>",
-                unsafe_allow_html=True
+    # ── 3. 세부 일정 추가 폼 ──────────────────────────────────────────
+    st.subheader("➕ 일정 추가")
+    with st.form("itinerary_form"):
+        _fc1, _fc2 = st.columns(2)
+        with _fc1:
+            _start_date = st.date_input("시작 날짜", value=date_type(2026, 5, 1))
+        with _fc2:
+            _end_date = st.date_input(
+                "종료 날짜 (하루 일정이면 시작 날짜와 동일하게)",
+                value=date_type(2026, 5, 1),
             )
-        st.markdown("<hr style='margin:2px 0 4px 0; border-color:#ebebeb;'>", unsafe_allow_html=True)
+        _fc3, _fc4 = st.columns(2)
+        with _fc3:
+            _start_time = st.time_input("시작 시간")
+        with _fc4:
+            _end_time = st.time_input("종료 시간")
 
-        # 데이터 행
-        for orig_idx, row in sorted_itin.iterrows():
-            c_date, c_start, c_end, c_act, c_memo, c_del = st.columns([1.6, 0.75, 0.75, 3.0, 2.6, 0.6])
-            c_date.markdown(f"<span style='font-size:13px;'>{row['날짜']}</span>",  unsafe_allow_html=True)
-            c_start.markdown(f"<span style='font-size:13px;'>{row['시작시간']}</span>", unsafe_allow_html=True)
-            c_end.markdown(f"<span style='font-size:13px;'>{row['종료시간']}</span>", unsafe_allow_html=True)
-            c_act.markdown(f"<span style='font-size:13px; font-weight:500;'>{row['장소 및 활동']}</span>", unsafe_allow_html=True)
-            c_memo.markdown(f"<span style='font-size:12px; color:#777;'>{row['메모'] if row['메모'] else ''}</span>", unsafe_allow_html=True)
-            with c_del:
-                if st.button("🗑️", key=f"del_itin_{orig_idx}", use_container_width=True):
-                    st.session_state['itinerary'] = (
-                        st.session_state['itinerary'].drop(orig_idx).reset_index(drop=True)
-                    )
-                    save_itinerary(st.session_state['itinerary'])
-                    st.rerun()
+        _activity = st.text_input("장소 및 활동")
+        _memo = st.text_area("메모 (준비물, 예약 번호 등)")
+        _submitted = st.form_submit_button("✅ 일정 추가하기", use_container_width=True)
 
-        st.divider()
-        csv = sorted_itin.reset_index(drop=True).to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 엑셀/CSV로 일정 다운로드",
-            data=csv,
-            file_name='us_west_trip_itinerary.csv',
-            mime='text/csv',
-        )
-    else:
-        st.info("아직 추가된 일정이 없습니다.")
+        if _submitted and _activity:
+            _end_d_str = str(_end_date) if str(_end_date) != str(_start_date) else ''
+            _new_row = pd.DataFrame({
+                '날짜': [str(_start_date)],
+                '종료날짜': [_end_d_str],
+                '시작시간': [_start_time.strftime("%H:%M")],
+                '종료시간': [_end_time.strftime("%H:%M")],
+                '장소 및 활동': [_activity],
+                '메모': [_memo],
+            })
+            _cur_df = st.session_state['itinerary']
+            if '종료날짜' not in _cur_df.columns:
+                _cur_df['종료날짜'] = ''
+            st.session_state['itinerary'] = pd.concat([_cur_df, _new_row], ignore_index=True)
+            save_itinerary(st.session_state['itinerary'])
+            st.success("✅ 일정이 추가되었습니다!")
+            st.rerun()
+        elif _submitted and not _activity:
+            st.warning("장소 및 활동을 입력해 주세요.")
 
 # ---- TAB 3: 항공/교통 정보 ----
 with tab3:
