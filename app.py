@@ -320,6 +320,10 @@ if 'transports' not in st.session_state:
     st.session_state['transports'] = load_transports()
 if 'settings' not in st.session_state:
     st.session_state['settings'] = load_settings()
+if 'edit_itin_idx' not in st.session_state:
+    st.session_state['edit_itin_idx'] = None
+if 'confirm_delete_idx' not in st.session_state:
+    st.session_state['confirm_delete_idx'] = None
 
 st.title("🚙 우리들의 미국 서부 여행 플래너")
 
@@ -1300,9 +1304,29 @@ render(Y,M);
     _CAL_HTML = _CAL_HTML.replace('__EV_JSON__', _ev_json)
     components.html(_CAL_HTML, height=640)
 
+    # ── 달력에서 수정할 일정 선택 ──
+    if not df_itin.empty:
+        _sorted_ev = df_itin.sort_values(by=['날짜', '시작시간'])
+        _ev_labels = ["-- 일정을 선택하여 수정하기 --"] + [
+            f"{_er['날짜']} {_er['시작시간']} | {str(_er['장소 및 활동'])[:30]}"
+            for _, _er in _sorted_ev.iterrows()
+        ]
+        _ev_indices = [None] + list(_sorted_ev.index)
+        _cal_sel = st.selectbox(
+            "✏️ 달력에서 수정할 일정 선택",
+            _ev_labels,
+            key="cal_edit_selectbox",
+        )
+        if _cal_sel != "-- 일정을 선택하여 수정하기 --":
+            _cal_sel_idx = _ev_indices[_ev_labels.index(_cal_sel)]
+            if st.session_state.get('edit_itin_idx') != _cal_sel_idx:
+                st.session_state['edit_itin_idx'] = _cal_sel_idx
+                st.session_state['confirm_delete_idx'] = None
+                st.rerun()
+
     # ── 2. 표로 보기 (접었다 펼쳤다) ────────────────────────────────────
     # 헤더·데이터 행 모두 동일 비율 사용 → 컬럼 정렬 보장
-    _COL_W = [2.0, 1.3, 3.5, 3.0, 0.55]
+    _COL_W = [2.0, 1.3, 3.2, 2.8, 0.55, 0.55]
 
     with st.expander("📋 표로 보기", expanded=False):
         if not df_itin.empty:
@@ -1310,7 +1334,7 @@ render(Y,M);
 
             # 헤더 행 (데이터와 동일 비율)
             _hcols = st.columns(_COL_W)
-            for _hc, _hl in zip(_hcols, ["날짜 / 기간", "시간", "장소 및 활동", "메모", ""]):
+            for _hc, _hl in zip(_hcols, ["날짜 / 기간", "시간", "장소 및 활동", "메모", "", ""]):
                 _hc.markdown(
                     f"<div style='background:#667eea;color:white;font-size:11px;"
                     f"font-weight:700;padding:6px 4px;border-radius:4px;text-align:center;'>"
@@ -1353,12 +1377,30 @@ render(Y,M);
                     unsafe_allow_html=True,
                 )
                 with _dcols[4]:
-                    if st.button("🗑️", key=f"del_itin_{_oi}", use_container_width=True):
-                        st.session_state['itinerary'] = (
-                            st.session_state['itinerary'].drop(_oi).reset_index(drop=True)
-                        )
-                        save_itinerary(st.session_state['itinerary'])
+                    if st.button("✏️", key=f"edit_itin_{_oi}", use_container_width=True, help="수정"):
+                        st.session_state['edit_itin_idx'] = _oi
+                        st.session_state['confirm_delete_idx'] = None
                         st.rerun()
+                with _dcols[5]:
+                    if st.session_state.get('confirm_delete_idx') == _oi:
+                        if st.button("✅", key=f"confirm_del_{_oi}", use_container_width=True, help="삭제 확인"):
+                            st.session_state['itinerary'] = (
+                                st.session_state['itinerary'].drop(_oi).reset_index(drop=True)
+                            )
+                            st.session_state['confirm_delete_idx'] = None
+                            save_itinerary(st.session_state['itinerary'])
+                            st.rerun()
+                    else:
+                        if st.button("🗑️", key=f"del_itin_{_oi}", use_container_width=True, help="삭제"):
+                            st.session_state['confirm_delete_idx'] = _oi
+                            st.session_state['edit_itin_idx'] = None
+                            st.rerun()
+
+            if st.session_state.get('confirm_delete_idx') is not None:
+                st.warning("⚠️ 삭제하시겠습니까? 해당 행의 ✅ 버튼을 클릭하면 삭제됩니다.")
+                if st.button("취소", key="cancel_delete_btn"):
+                    st.session_state['confirm_delete_idx'] = None
+                    st.rerun()
 
             st.divider()
             _csv = sorted_itin.reset_index(drop=True).to_csv(index=False).encode('utf-8')
@@ -1371,9 +1413,74 @@ render(Y,M);
         else:
             st.info("아직 추가된 일정이 없습니다.")
 
+    # ── 3. 일정 수정 폼 ──────────────────────────────────────────────
+    _edit_idx = st.session_state.get('edit_itin_idx')
+    if _edit_idx is not None and _edit_idx in df_itin.index:
+        _edit_row = df_itin.loc[_edit_idx]
+        st.markdown("---")
+        st.subheader("✏️ 일정 수정")
+
+        try:
+            _ed_start = date_type.fromisoformat(str(_edit_row['날짜']))
+        except Exception:
+            _ed_start = date_type(2026, 5, 1)
+
+        _ed_end_str = str(_edit_row.get('종료날짜', '') or '').strip()
+        try:
+            _ed_end = date_type.fromisoformat(_ed_end_str) if _ed_end_str and _ed_end_str != 'nan' else _ed_start
+        except Exception:
+            _ed_end = _ed_start
+
+        try:
+            _ed_st = datetime.strptime(str(_edit_row['시작시간']), "%H:%M").time()
+        except Exception:
+            _ed_st = datetime.strptime("09:00", "%H:%M").time()
+
+        try:
+            _ed_et = datetime.strptime(str(_edit_row['종료시간']), "%H:%M").time()
+        except Exception:
+            _ed_et = datetime.strptime("10:00", "%H:%M").time()
+
+        with st.form("edit_itinerary_form"):
+            _efc1, _efc2 = st.columns(2)
+            with _efc1:
+                _e_start_date = st.date_input("시작 날짜", value=_ed_start, key="edit_start_date")
+            with _efc2:
+                _e_end_date = st.date_input("종료 날짜 (하루면 시작 날짜와 동일)", value=_ed_end, key="edit_end_date")
+            _efc3, _efc4 = st.columns(2)
+            with _efc3:
+                _e_start_time = st.time_input("시작 시간", value=_ed_st, key="edit_start_time")
+            with _efc4:
+                _e_end_time = st.time_input("종료 시간", value=_ed_et, key="edit_end_time")
+            _e_activity = st.text_input("장소 및 활동", value=str(_edit_row['장소 및 활동']), key="edit_activity")
+            _e_memo = st.text_area("메모", value=str(_edit_row.get('메모', '') or ''), key="edit_memo")
+            _e_submitted = st.form_submit_button("💾 수정 저장", use_container_width=True, type="primary")
+
+            if _e_submitted and _e_activity:
+                _end_d_str2 = str(_e_end_date) if str(_e_end_date) != str(_e_start_date) else ''
+                st.session_state['itinerary'].at[_edit_idx, '날짜'] = str(_e_start_date)
+                st.session_state['itinerary'].at[_edit_idx, '종료날짜'] = _end_d_str2
+                st.session_state['itinerary'].at[_edit_idx, '시작시간'] = _e_start_time.strftime("%H:%M")
+                st.session_state['itinerary'].at[_edit_idx, '종료시간'] = _e_end_time.strftime("%H:%M")
+                st.session_state['itinerary'].at[_edit_idx, '장소 및 활동'] = _e_activity
+                st.session_state['itinerary'].at[_edit_idx, '메모'] = _e_memo
+                save_itinerary(st.session_state['itinerary'])
+                st.session_state['edit_itin_idx'] = None
+                st.session_state['itin_edit_success'] = True
+                st.rerun()
+            elif _e_submitted and not _e_activity:
+                st.warning("장소 및 활동을 입력해 주세요.")
+
+        if st.button("취소", key="cancel_edit_form"):
+            st.session_state['edit_itin_idx'] = None
+            st.rerun()
+
+    if st.session_state.pop('itin_edit_success', False):
+        st.success("✅ 일정이 수정되었습니다!")
+
     st.divider()
 
-    # ── 3. 세부 일정 추가 폼 ──────────────────────────────────────────
+    # ── 4. 세부 일정 추가 폼 ──────────────────────────────────────────
     st.subheader("➕ 일정 추가")
 
     # rerun 이후 완료 메시지 표시 (플래그 읽고 즉시 소거)
